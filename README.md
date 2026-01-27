@@ -146,15 +146,62 @@ val opts = NautyOptions.defaultGraph
 val result = Nauty.densenauty(graph, opts)
 ```
 
+### Sparse Graphs
+
+```scala
+import com.thatdot.nauty._
+
+// Create sparse graph (more efficient for graphs with few edges)
+val sg = SparseGraph.fromEdges(1000, edges)
+
+// Process natively without converting to dense representation
+val result = Nauty.sparsenauty(sg)
+println(s"Group size: ${result.groupSize}")
+
+// Convert between representations
+val dense = sg.toDense
+val sparse = dense.toSparse
+```
+
+### Graph Permutation
+
+```scala
+// Apply a permutation to relabel a graph
+// Result has edge (p(v), p(w)) iff original has edge (v, w)
+val perm = Array(2, 0, 1, 3)  // vertex 0->2, 1->0, 2->1, 3->3
+val relabeled = graph.permute(perm)
+```
+
+### Schreier-Sims Group Order
+
+```scala
+import com.thatdot.nauty.group.SchreierSims
+
+// Compute exact group order from generators
+val result = Nauty.densenauty(g)
+val groupOrder: BigInt = SchreierSims.groupOrder(result.generators, g.n)
+
+// Test if a permutation is in the group
+val perm = Permutation(1, 0, 3, 2)
+val isMember = SchreierSims.isMember(perm, result.generators, g.n)
+```
+
+### Running the Example
+
+```bash
+sbt "runMain com.thatdot.nauty.examples.CypherExample"
+```
+
 ## Package Structure
 
 ```
 com.thatdot.nauty/
 ├── bits/           # SetWord, BitOps utilities
 ├── core/           # Nauty algorithm, Partition, Refinement
-├── cypher/         # Cypher pattern parsing and canonicalization # For demonstration only
+├── cypher/         # Cypher pattern parsing and canonicalization (demonstration)
+├── examples/       # Example usage (CypherExample)
 ├── graph/          # DenseGraph, SparseGraph
-├── group/          # Permutation, Orbits
+├── group/          # Permutation, Orbits, SchreierSims
 ├── io/             # Graph6, Sparse6, Digraph6 codecs
 └── util/           # NautyOptions, NautyStats
 ```
@@ -227,8 +274,6 @@ This is a **partial port** of nauty. The following features are implemented:
 ```bash
 sbt test
 ```
-
-Current test coverage: 173 tests across 10 test suites.
 
 ## Contributing
 

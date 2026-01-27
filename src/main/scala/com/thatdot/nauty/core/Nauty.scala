@@ -2,7 +2,7 @@ package com.thatdot.nauty.core
 
 import com.thatdot.nauty.bits.{SetWord, BitOps, SetOps}
 import com.thatdot.nauty.graph.{DenseGraph, SparseGraph, Graph}
-import com.thatdot.nauty.group.{Permutation, Orbits}
+import com.thatdot.nauty.group.{Permutation, Orbits, SchreierSims}
 import com.thatdot.nauty.util.{NautyOptions, NautyStats, StatsBuilder}
 
 import scala.collection.mutable.ArrayBuffer
@@ -347,11 +347,22 @@ private class NautyContext(
     // Build result
     stats.numOrbits = Orbits.numOrbits(orbits, n)
 
+    val generatorsList = generators.map(p => Permutation.unsafeFromArray(p.toArray)).toList
+
+    // Compute group size: use Schreier-Sims if enabled, otherwise use orbit-index approximation
+    val groupSize: BigDecimal = if (options.schreier && generatorsList.nonEmpty) {
+      // Use Schreier-Sims for accurate group order
+      BigDecimal(SchreierSims.groupOrder(generatorsList, n))
+    } else {
+      // Use the orbit-index approximation computed during search
+      stats.build().groupSize
+    }
+
     NautyResult(
       canonicalGraph = if (options.getCanon != 0) canong else None,
       canonicalLabeling = if (options.getCanon != 0) canonLab.clone() else lab.clone(),
-      generators = generators.map(p => Permutation.unsafeFromArray(p.toArray)).toList,
-      groupSize = stats.build().groupSize,
+      generators = generatorsList,
+      groupSize = groupSize,
       numOrbits = stats.numOrbits,
       orbits = orbits.clone(),
       stats = stats.build()

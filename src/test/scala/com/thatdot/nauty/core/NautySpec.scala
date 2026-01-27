@@ -482,4 +482,66 @@ class NautySpec extends AnyFlatSpec with Matchers {
     val group = Nauty.generateGroup(Nil)
     group shouldBe empty
   }
+
+  //
+  // Schreier-Sims option tests
+  //
+
+  "Nauty with schreier option" should "compute accurate group size for complete graphs" in {
+    for (n <- 3 to 6) {
+      val g = DenseGraph.complete(n)
+      val opts = NautyOptions.defaultGraph.withSchreier
+      val result = Nauty.densenauty(g, opts)
+
+      result.groupSize shouldBe BigDecimal(factorial(n))
+    }
+  }
+
+  it should "compute accurate group size for cycle graphs" in {
+    for (n <- 3 to 8) {
+      val g = DenseGraph.cycle(n)
+      val opts = NautyOptions.defaultGraph.withSchreier
+      val result = Nauty.densenauty(g, opts)
+
+      // Cycle has dihedral group D_n of order 2n
+      result.groupSize shouldBe BigDecimal(2 * n)
+    }
+  }
+
+  it should "compute accurate group size for Petersen graph" in {
+    val petersen = DenseGraph.fromEdges(10, Seq(
+      // Outer pentagon
+      (0, 1), (1, 2), (2, 3), (3, 4), (4, 0),
+      // Inner pentagram
+      (5, 7), (7, 9), (9, 6), (6, 8), (8, 5),
+      // Spokes
+      (0, 5), (1, 6), (2, 7), (3, 8), (4, 9)
+    ))
+
+    val opts = NautyOptions.defaultGraph.withSchreier
+    val result = Nauty.densenauty(petersen, opts)
+
+    // Petersen graph has automorphism group of order 120
+    result.groupSize shouldBe BigDecimal(120)
+  }
+
+  it should "give same results as without schreier for standard graphs" in {
+    val graphs = Seq(
+      DenseGraph.complete(4),
+      DenseGraph.cycle(5),
+      DenseGraph.path(4),
+      DenseGraph.fromEdges(4, Seq((0, 1), (0, 2), (0, 3)))  // Star
+    )
+
+    for (g <- graphs) {
+      val resultWithout = Nauty.densenauty(g)
+      val resultWith = Nauty.densenauty(g, NautyOptions.defaultGraph.withSchreier)
+
+      // Should find same generators (or equivalent)
+      resultWith.numOrbits shouldBe resultWithout.numOrbits
+
+      // Group sizes should match (for these well-behaved graphs)
+      resultWith.groupSize shouldBe resultWithout.groupSize
+    }
+  }
 }

@@ -100,11 +100,14 @@ object Nauty {
 
   /**
    * Compute automorphism group and canonical labeling of a sparse graph.
+   * This uses native sparse-specific algorithms without converting to dense.
+   *
+   * @param g       The input sparse graph
+   * @param options Computation options
+   * @return SparseNautyResult with sparse canonical graph (no conversion to dense)
    */
-  def sparsenauty(g: SparseGraph, options: NautyOptions = NautyOptions.defaultSparseGraph): NautyResult = {
-    // Convert to dense and use dense algorithm
-    // TODO: Implement sparse-specific refinement for better performance
-    densenauty(g.toDense, options)
+  def sparsenauty(g: SparseGraph, options: NautyOptions = NautyOptions.defaultSparseGraph): SparseNautyResult = {
+    SparseNauty.sparsenauty(g, options)
   }
 
   /**

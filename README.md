@@ -163,13 +163,13 @@ com.thatdot.nauty/
 
 This is a **partial port** of nauty. The following features are implemented:
 
-### Implemented (Phases 1-3, 6)
+### Implemented (Phases 1-4, 6)
 
 | Feature | Status | Notes |
 |---------|--------|-------|
 | Bit operations (`SetWord`) | ✅ Complete | POPCOUNT, FIRSTBIT, set operations |
 | Dense graph representation | ✅ Complete | Bit-packed adjacency matrix |
-| Sparse graph representation | ✅ Complete | CSR format (converts to dense for algorithm) |
+| Sparse graph representation | ✅ Complete | CSR format with native sparse algorithms |
 | Partition operations | ✅ Complete | lab/ptn encoding, cell operations, snapshots |
 | Permutation operations | ✅ Complete | Composition, inverse, cycles, order |
 | Partition refinement | ✅ Complete | Neighbor counting, bucket sort splitting |
@@ -183,15 +183,12 @@ This is a **partial port** of nauty. The following features are implemented:
 | Initial partition support | ✅ Complete | Vertex coloring |
 | Cypher pattern support | ✅ Complete | Parse, canonicalize, automorphisms |
 | Schreier-Sims | ✅ Complete | BSGS computation, group order, membership testing (pruneset not implemented) |
+| Sparse-specific algorithms | ✅ Complete | Native sparse refinement, automorphism testing, `sparsenauty()` |
 
-### Not Yet Implemented (Phases 4-5, 7)
+### Not Yet Implemented (Phases 5, 7)
 
 | Feature | Phase | Priority | Complexity |
 |---------|-------|----------|------------|
-| **Sparse-specific algorithms** | 4 | Medium | Medium |
-| - Sparse refinement (currently converts to dense) | | | |
-| - Sparse automorphism testing | | | |
-| - Native `sparsenauty()` | | | |
 | **Traces algorithm** | 5 | Low | High |
 | - Candidate lists and search trie | | | ~10,500 lines in C |
 | - Traces-specific refinement | | | |
@@ -208,13 +205,11 @@ This is a **partial port** of nauty. The following features are implemented:
 
 ### Known Limitations
 
-1. **Sparse graphs**: The `sparsenauty()` function currently converts to dense representation. For large sparse graphs, this is inefficient.
+1. **Traces**: The Traces algorithm (often faster than nauty for large graphs) is not implemented.
 
-2. **Traces**: The Traces algorithm (often faster than nauty for large graphs) is not implemented.
+2. **Schreier-Sims pruneset**: The `pruneset()` optimization from C nauty (which prunes the search space using group information during the search) is not implemented. This does not affect correctness—all automorphisms are still found—but may result in exploring more search tree nodes than necessary for some graphs.
 
-3. **Schreier-Sims pruneset**: The `pruneset()` optimization from C nauty (which prunes the search space using group information during the search) is not implemented. This does not affect correctness—all automorphisms are still found—but may result in exploring more search tree nodes than necessary for some graphs.
-
-4. **Performance**: Expect 2-5x slower than C nauty due to JVM overhead. Sufficient for most applications but not for processing millions of graphs.
+3. **Performance**: Expect 2-5x slower than C nauty due to JVM overhead. Sufficient for most applications but not for processing millions of graphs.
 
 ## Comparison with C nauty
 
@@ -233,12 +228,12 @@ This is a **partial port** of nauty. The following features are implemented:
 sbt test
 ```
 
-Current test coverage: 154 tests across 9 test suites.
+Current test coverage: 173 tests across 10 test suites.
 
 ## Contributing
 
 Contributions are welcome, especially for:
-- Sparse-specific algorithms (Phase 4)
+- Traces algorithm (Phase 5)
 - Schreier-Sims pruneset optimization
 - Performance improvements
 - Additional test cases

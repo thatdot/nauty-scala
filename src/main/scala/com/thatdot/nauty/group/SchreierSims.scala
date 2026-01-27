@@ -7,12 +7,15 @@ import scala.util.Random
  * Schreier-Sims algorithm for computing a Base and Strong Generating Set (BSGS)
  * of a permutation group.
  *
+ * This implementation closely follows the C nauty schreier.c implementation:
+ * - Uses union-find with path compression for orbit tracking
+ * - Stores transversals as (generator, power) pairs instead of full permutations
+ * - filterschreier simultaneously sifts and extends transversals
+ *
  * This allows:
  * - Accurate computation of group order
  * - Membership testing
  * - Enumeration of group elements
- *
- * Based on the randomized Schreier-Sims algorithm as implemented in nauty.
  */
 object SchreierSims {
 
@@ -28,17 +31,21 @@ object SchreierSims {
       return BSGS(Nil, n)
     }
 
-    val bsgs = new BSGSBuilder(n)
+    val builder = new SchreierBuilder(n)
 
-    // Add all generators
+    // Add all generators via filterschreier
     for (gen <- generators if !gen.isIdentity) {
-      bsgs.addGenerator(gen)
+      builder.filterschreier(gen.toArray, inGroup = false)
     }
 
-    // Expand using random Schreier products
-    bsgs.expand()
+    // Like C nauty's grouporder():
+    // - getorbits() calls expandschreier() once
+    // - grouporder() then calls expandschreier() twice more
+    builder.expandschreier()
+    builder.expandschreier()
+    builder.expandschreier()
 
-    bsgs.toBSGS
+    builder.toBSGS
   }
 
   /**
@@ -172,119 +179,215 @@ case class StabilizerLevel(
 }
 
 /**
- * Mutable builder for constructing a BSGS.
+ * Mutable builder matching C nauty's schreier structure.
+ *
+ * Each level has:
+ * - vec[i]: permutation that moves i toward the orbit representative (or null if not in orbit)
+ * - pwr[i]: power of vec[i] to apply
+ * - orbits[i]: union-find structure for orbits
+ * - fixed: the base point for this level
  */
-private class BSGSBuilder(val n: Int) {
-  private val levels = mutable.ListBuffer[LevelBuilder]()
+private class SchreierBuilder(val n: Int) {
+  // Match C's SCHREIERFAILS constant exactly
+  private val SCHREIERFAILS = 10
+
+  // List of all generators (simulates C's circular permnode list)
+  private val generators = mutable.ArrayBuffer[Array[Int]]()
+
+  // Stabilizer chain levels
+  private val levels = mutable.ArrayBuffer[SchreierLevel]()
+
   private val random = new Random()
-
-  // Number of random products to try without improvement before stopping
-  private val maxFails = 50
+  private val workperm = new Array[Int](n)
 
   /**
-   * Add a generator to the BSGS.
+   * Filter permutation p through the stabilizer chain.
+   * Like C's filterschreier(), this simultaneously:
+   * - Updates orbits via union-find
+   * - Extends transversals with (vec, pwr) entries
+   * - Sifts through the chain
+   *
+   * @param p The permutation (as array)
+   * @param inGroup True if p is known to be in the group
+   * @return True if any change was made to the structure
    */
-  def addGenerator(gen: Permutation): Boolean = {
-    if (gen.isIdentity) return false
-    siftAndAdd(gen)
-  }
+  def filterschreier(p: Array[Int], inGroup: Boolean): Boolean = {
+    // Copy to working permutation
+    System.arraycopy(p, 0, workperm, 0, n)
 
-  /**
-   * Sift a permutation and add residue as new generator if needed.
-   * Returns true if the BSGS was changed.
-   */
-  private def siftAndAdd(perm: Permutation): Boolean = {
-    var current = perm
-    var levelIdx = 0
     var changed = false
+    var levelIdx = 0
+    var currentInGroup = inGroup
+    var addedToGens = false
 
-    while (!current.isIdentity) {
+    while (true) {
+      // Check if workperm is identity
+      var isIdent = true
+      var i = 0
+      while (i < n && isIdent) {
+        if (workperm(i) != i) isIdent = false
+        i += 1
+      }
+      if (isIdent) return changed
+
+      // Ensure we have enough levels
       if (levelIdx >= levels.length) {
-        // Need a new level - find first non-fixed point
-        val beta = (0 until n).find(i => current(i) != i).get
-        levels += new LevelBuilder(beta, n)
+        // Find first non-fixed point as base
+        val beta = (0 until n).find(i => workperm(i) != i).get
+        levels += new SchreierLevel(beta, n)
         changed = true
       }
 
       val level = levels(levelIdx)
-      val beta = level.basePoint
-      val image = current(beta)
 
-      level.transversal.get(image) match {
-        case Some(rep) =>
-          // Apply inverse of coset rep on LEFT to reduce: rep^{-1} * current
-          current = rep.inverse.compose(current)
-          levelIdx += 1
+      // Update orbits using union-find (like C's lines 597-612)
+      var lchanged = false
+      for (i <- 0 until n) {
+        val j1 = level.findOrbitRep(i)
+        val j2 = level.findOrbitRep(workperm(i))
 
-        case None =>
-          // Image not in orbit - extend orbit and add generator
-          level.addGenerator(current)
-          changed = true
-          // Continue sifting the same permutation
-          level.transversal.get(image) match {
-            case Some(rep) =>
-              current = rep.inverse.compose(current)
-              levelIdx += 1
-            case None =>
-              // Should not happen after adding generator
-              throw new IllegalStateException("Failed to extend orbit")
-          }
+        if (j1 != j2) {
+          lchanged = true
+          // Union: smaller becomes parent of larger
+          if (j1 < j2) level.orbits(j2) = j1
+          else level.orbits(j1) = j2
+        }
       }
+
+      // Path compression (like C's line 612)
+      if (lchanged) {
+        for (i <- 0 until n) {
+          level.orbits(i) = level.findOrbitRep(i)
+        }
+        changed = true
+      }
+
+      // Extend transversal for new orbit elements (like C's lines 618-638)
+      for (i <- 0 until n) {
+        if (level.vec(i) != null && level.vec(workperm(i)) == null) {
+          changed = true
+
+          // Count how many steps from workperm(i) to reach a known element
+          var ipwr = 0
+          var j = workperm(i)
+          while (level.vec(j) == null) {
+            ipwr += 1
+            j = workperm(j)
+          }
+
+          // Fill in vec/pwr for the chain
+          j = workperm(i)
+          while (level.vec(j) == null) {
+            // Add workperm to generators if not already
+            if (!addedToGens) {
+              if (!currentInGroup) {
+                addGenerator(workperm.clone())
+              } else {
+                addGeneratorUnmarked(workperm.clone())
+              }
+              currentInGroup = true
+              addedToGens = true
+            }
+            level.vec(j) = generators.last
+            level.pwr(j) = ipwr
+            ipwr -= 1
+            j = workperm(j)
+          }
+        }
+      }
+
+      // Apply coset representatives to reach next level (like C's lines 640-648)
+      val fixed = level.fixed
+      var target = workperm(fixed)
+
+      while (target != fixed) {
+        // Apply vec[target]^pwr[target] to workperm
+        applyPerm(workperm, level.vec(target), level.pwr(target))
+        addedToGens = false  // After applying, workperm may be different
+        target = workperm(fixed)
+      }
+
+      levelIdx += 1
     }
 
+    // Unreachable, but compiler wants this
     changed
   }
 
   /**
-   * Expand the BSGS using random Schreier products and Schreier generators.
+   * Apply permutation p^k to workperm (like C's applyperm).
    */
-  def expand(): Unit = {
-    var fails = 0
+  private def applyPerm(wp: Array[Int], p: Array[Int], k: Int): Unit = {
+    if (k == 0) return
 
-    while (fails < maxFails) {
-      val changed = expandOnce()
-      if (changed) {
-        fails = 0
-      } else {
-        fails += 1
+    if (k <= 5) {
+      if (k == 1) {
+        for (i <- 0 until n) wp(i) = p(wp(i))
+      } else if (k == 2) {
+        for (i <- 0 until n) wp(i) = p(p(wp(i)))
+      } else if (k == 3) {
+        for (i <- 0 until n) wp(i) = p(p(p(wp(i))))
+      } else if (k == 4) {
+        for (i <- 0 until n) wp(i) = p(p(p(p(wp(i)))))
+      } else { // k == 5
+        for (i <- 0 until n) wp(i) = p(p(p(p(p(wp(i))))))
+      }
+    } else {
+      // For larger k, use repeated application
+      for (_ <- 0 until k) {
+        for (i <- 0 until n) wp(i) = p(wp(i))
       }
     }
   }
 
-  private def expandOnce(): Boolean = {
-    // Collect all generators from all levels
-    val allGens = levels.flatMap(_.generators.toSeq).toIndexedSeq
-    if (allGens.isEmpty) return false
+  private def addGenerator(p: Array[Int]): Unit = {
+    generators += p
+  }
 
+  private def addGeneratorUnmarked(p: Array[Int]): Unit = {
+    generators += p
+  }
+
+  /**
+   * Expand the BSGS using random products (like C's expandschreier).
+   */
+  def expandschreier(): Boolean = {
+    if (generators.isEmpty) return false
+
+    var nfails = 0
     var changed = false
 
-    // Try a random product
-    val wordLen = 1 + random.nextInt(4)
-    var product = Permutation.identity(n)
-    for (_ <- 0 until wordLen) {
-      product = product.compose(allGens(random.nextInt(allGens.length)))
+    // Start with a random skip like C: KRAN(17) gives 0-16
+    var pnIdx = 0
+    var skips = random.nextInt(17)
+    while (skips > 0) {
+      pnIdx = (pnIdx + 1) % generators.length
+      skips -= 1
     }
-    if (siftAndAdd(product)) changed = true
+    val workperm2 = generators(pnIdx).clone()
 
-    // Try some Schreier generators
-    val levelsCopy = levels.toList
-    for (level <- levelsCopy) {
-      val orbitList = level.transversal.keys.toList
-      val gensList = level.generators.toList
+    while (nfails < SCHREIERFAILS) {
+      // Random word of length 1-4 (like C's wordlen = 1 + KRAN(3))
+      val wordlen = 1 + random.nextInt(4)
 
-      for (gen <- gensList; pt <- orbitList) {
-        val image = gen(pt)
-        (level.transversal.get(pt), level.transversal.get(image)) match {
-          case (Some(u), Some(v)) =>
-            // Schreier generator: v^{-1} * gen * u
-            // u maps β to pt, v maps β to gen(pt)
-            // h(β) = v^{-1}(gen(u(β))) = v^{-1}(gen(pt)) = v^{-1}(image) = β
-            val schreierGen = v.inverse.compose(gen).compose(u)
-            if (!schreierGen.isIdentity && siftAndAdd(schreierGen)) {
-              changed = true
-            }
-          case _ => // Skip
+      for (_ <- 0 until wordlen) {
+        // Skip random number like C's KRAN(17): 0-16 independent of generator count
+        skips = random.nextInt(17)
+        while (skips > 0) {
+          pnIdx = (pnIdx + 1) % generators.length
+          skips -= 1
         }
+
+        // Compose: workperm2 := generators(pnIdx) ∘ workperm2
+        val gen = generators(pnIdx)
+        for (i <- 0 until n) workperm2(i) = gen(workperm2(i))
+      }
+
+      if (filterschreier(workperm2, inGroup = true)) {
+        changed = true
+        nfails = 0
+      } else {
+        nfails += 1
       }
     }
 
@@ -296,53 +399,109 @@ private class BSGSBuilder(val n: Int) {
    */
   def toBSGS: BSGS = {
     val immutableLevels = levels.map { level =>
+      // Build transversal from vec/pwr chain computed during filterschreier
+      // The coset representative for target maps fixed -> target
+      // We compute it by following the vec/pwr chain backward
+      val transversal = mutable.Map[Int, Permutation]()
+
+      for (target <- 0 until n if level.vec(target) != null) {
+        if (target == level.fixed) {
+          transversal(target) = Permutation.identity(n)
+        } else {
+          // Compute coset rep by following chain from target to fixed,
+          // then inverting. The chain goes: target --(vec^pwr)--> ... --> fixed
+          // The coset rep is the inverse of composing vec^pwr along the chain
+          val chainPerms = mutable.ArrayBuffer[Permutation]()
+          var current = target
+
+          while (current != level.fixed) {
+            val vec = level.vec(current)
+            val pwr = level.pwr(current)
+
+            if (vec == null) {
+              throw new IllegalStateException(s"vec($current) is null in chain to ${level.fixed}")
+            }
+
+            // Build vec^pwr as a permutation
+            val vecPerm = Permutation.fromArray(vec)
+            var powered = Permutation.identity(n)
+            for (_ <- 0 until pwr) {
+              powered = vecPerm.compose(powered)
+            }
+            chainPerms += powered
+
+            // Move along chain
+            var next = current
+            for (_ <- 0 until pwr) {
+              next = vec(next)
+            }
+            current = next
+          }
+
+          // Coset rep = inverse of (chain perms composed in order)
+          // chain goes target -> ... -> fixed
+          // To go fixed -> target, we apply inverses in reverse order
+          var cosetRep = Permutation.identity(n)
+          for (p <- chainPerms.reverse) {
+            cosetRep = p.inverse.compose(cosetRep)
+          }
+          transversal(target) = cosetRep
+        }
+      }
+
+      // Collect generators for this level
+      val levelGens = generators.map(Permutation.fromArray).toSet
+
       StabilizerLevel(
-        level.basePoint,
-        level.transversal.toMap,
-        level.generators.toSet
+        level.fixed,
+        transversal.toMap,
+        levelGens
       )
     }.toList
 
     BSGS(immutableLevels, n)
   }
+}
+
+/**
+ * One level of the schreier structure (like C's schreier struct).
+ */
+private class SchreierLevel(val fixed: Int, n: Int) {
+  // vec[i] = generator that moves i toward the orbit representative
+  val vec: Array[Array[Int]] = new Array[Array[Int]](n)
+
+  // pwr[i] = power of vec[i] to apply
+  val pwr: Array[Int] = new Array[Int](n)
+
+  // Union-find structure for orbits
+  val orbits: Array[Int] = Array.tabulate(n)(identity)
+
+  // Initialize: fixed point is in its own orbit with identity
+  vec(fixed) = Array.tabulate(n)(identity) // Identity permutation
+  pwr(fixed) = 0
 
   /**
-   * Mutable level builder.
+   * Find orbit representative using path compression.
    */
-  private class LevelBuilder(val basePoint: Int, n: Int) {
-    val transversal = mutable.Map[Int, Permutation](basePoint -> Permutation.identity(n))
-    val generators = mutable.Set[Permutation]()
-
-    /**
-     * Add a generator and extend the orbit using BFS.
-     */
-    def addGenerator(gen: Permutation): Unit = {
-      generators += gen
-
-      // BFS to compute full orbit under all generators
-      val queue = mutable.Queue[Int]()
-      val currentOrbit = transversal.keySet.toSet
-
-      for (pt <- currentOrbit) {
-        queue.enqueue(pt)
-      }
-
-      while (queue.nonEmpty) {
-        val pt = queue.dequeue()
-        val rep = transversal(pt)
-
-        for (g <- generators) {
-          val image = g(pt)
-          if (!transversal.contains(image)) {
-            // Coset rep for image = g * rep (maps basePoint to image)
-            // g.compose(rep)(basePoint) = g(rep(basePoint)) = g(pt) = image
-            transversal(image) = g.compose(rep)
-            queue.enqueue(image)
-          }
-        }
-      }
+  def findOrbitRep(i: Int): Int = {
+    var j = i
+    while (orbits(j) != j) {
+      j = orbits(j)
     }
+    // Path compression
+    var k = i
+    while (orbits(k) != j) {
+      val next = orbits(k)
+      orbits(k) = j
+      k = next
+    }
+    j
   }
+
+  /**
+   * Count elements with non-null vec entries (orbit size).
+   */
+  def orbitSize: Int = vec.count(_ != null)
 }
 
 /**

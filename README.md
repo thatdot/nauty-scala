@@ -1,4 +1,4 @@
-# scala-nauty
+# nauty-scala
 
 A partial Scala port of **nauty** (No AUTomorphisms, Yes?) - the graph automorphism and canonical labeling library.
 
@@ -25,7 +25,7 @@ This library provides:
 Add to your `build.sbt`:
 
 ```scala
-libraryDependencies += "com.thatdot" %% "scala-nauty" % "0.1.0-SNAPSHOT"
+libraryDependencies += "com.thatdot" %% "nauty-scala" % "0.1.0-SNAPSHOT"
 ```
 
 Or build from source:
@@ -213,7 +213,7 @@ This is a **partial port** of nauty. The following features are implemented:
 
 ## Comparison with C nauty
 
-| Aspect | C nauty | scala-nauty |
+| Aspect | C nauty | nauty-scala |
 |--------|---------|-------------|
 | API style | Mutable, pointer-based | Immutable results, functional API |
 | Type safety | Manual | Strongly typed options and results |

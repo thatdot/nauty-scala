@@ -4,7 +4,7 @@ ThisBuild / organization := "com.thatdot"
 
 lazy val root = (project in file("."))
   .settings(
-    name := "scala-nauty",
+    name := "nauty-scala",
     libraryDependencies ++= Seq(
       "org.scalatest" %% "scalatest" % "3.2.17" % Test,
       "org.scalatestplus" %% "scalacheck-1-17" % "3.2.17.0" % Test,

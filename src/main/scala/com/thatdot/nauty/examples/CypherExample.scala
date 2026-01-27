@@ -5,7 +5,7 @@ import com.thatdot.nauty.graph.DenseGraph
 import com.thatdot.nauty.util.NautyOptions
 
 /**
- * Example showing how to use scala-nauty for the same tasks as
+ * Example showing how to use nauty-scala for the same tasks as
  * cypher_canonicalize.py and cypher_automorphisms.py.
  */
 object CypherExample {

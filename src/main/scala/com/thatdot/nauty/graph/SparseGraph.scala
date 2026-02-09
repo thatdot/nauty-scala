@@ -1,6 +1,6 @@
 package com.thatdot.nauty.graph
 
-import com.thatdot.nauty.bits.{SetWord, SetOps}
+import com.thatdot.nauty.bits.SetWord
 import scala.collection.mutable.ArrayBuffer
 
 /**

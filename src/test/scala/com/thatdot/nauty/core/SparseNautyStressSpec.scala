@@ -409,8 +409,10 @@ class SparseNautyStressSpec extends AnyFlatSpec with Matchers {
   // WHEEL GRAPHS - Known group sizes
   //
 
-  "Wheel graph W_n" should "have automorphism group D_n for n >= 3" in {
-    for (n <- 3 to 8) {
+  "Wheel graph W_n" should "have automorphism group D_n for n >= 4" in {
+    // Note: W_3 = K_4 (since C_3 is complete), so Aut(W_3) = S_4, not D_3
+    // The D_n formula only applies for n >= 4
+    for (n <- 4 to 8) {
       // Wheel with hub 0 and rim 1..n
       val rimEdges = (1 to n).map(i => (i, if (i == n) 1 else i + 1))
       val spokeEdges = (1 to n).map(i => (0, i))

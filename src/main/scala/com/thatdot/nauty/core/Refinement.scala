@@ -1,7 +1,7 @@
 package com.thatdot.nauty.core
 
-import com.thatdot.nauty.bits.{SetWord, BitOps, SetOps}
-import com.thatdot.nauty.graph.{DenseGraph, SparseGraph, Graph}
+import com.thatdot.nauty.bits.{BitOps, SetOps}
+import com.thatdot.nauty.graph.DenseGraph
 
 /**
  * Partition refinement for graph automorphism computation.

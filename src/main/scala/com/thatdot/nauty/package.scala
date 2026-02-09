@@ -48,7 +48,7 @@ package com.thatdot
  */
 package object nauty {
   /** Version string */
-  val Version: String = "0.1.0-SNAPSHOT"
+  val Version: String = "0.9.0"
 
   /** Maximum supported number of vertices */
   val MaxN: Int = Int.MaxValue - 2
@@ -73,8 +73,4 @@ package object nauty {
   val Sparse6 = io.Sparse6
   val Digraph6 = io.Digraph6
   val GraphIO = io.GraphIO
-
-  // Re-export Cypher pattern support
-  val CypherPattern = cypher.CypherPattern
-  type CypherPatternType = cypher.CypherPattern
 }

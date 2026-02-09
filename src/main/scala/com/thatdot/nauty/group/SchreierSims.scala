@@ -107,8 +107,10 @@ case class BSGS(levels: List[StabilizerLevel], n: Int) {
    */
   def sift(perm: Permutation): (Permutation, Boolean) = {
     var current = perm
-
-    for (level <- levels) {
+    var i = 0
+    var inGroup = true
+    while (i < levels.length && inGroup) {
+      val level = levels(i)
       val beta = level.basePoint
       val image = current(beta)
 
@@ -119,11 +121,13 @@ case class BSGS(levels: List[StabilizerLevel], n: Int) {
           current = rep.inverse.compose(current)
         case None =>
           // Not in group - image not in orbit
-          return (current, false)
+          inGroup = false
       }
+      i += 1
     }
 
-    (current, current.isIdentity)
+    if (inGroup) (current, current.isIdentity)
+    else (current, false)
   }
 
   /**

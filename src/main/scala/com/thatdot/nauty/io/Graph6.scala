@@ -1,7 +1,7 @@
 package com.thatdot.nauty.io
 
-import com.thatdot.nauty.graph.{DenseGraph, SparseGraph, Graph}
-import com.thatdot.nauty.bits.{SetWord, SetOps}
+import com.thatdot.nauty.graph.{DenseGraph, Graph}
+import com.thatdot.nauty.bits.SetWord
 
 /**
  * Graph6 encoding and decoding for undirected graphs.

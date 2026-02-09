@@ -27,8 +27,6 @@ case class SparseNautyResult(
  * converting to dense, which is more efficient for large sparse graphs.
  */
 object SparseNauty {
-  private val NAUTY_INFINITY = 2000000002
-
   /**
    * Compute automorphism group and canonical labeling of a sparse graph.
    *
@@ -114,6 +112,10 @@ private class SparseNautyContext(
   var eqlevCanon: Int = -1
   var compCanon: Int = 0
   var canonLevel: Int = 0
+  var allSameLevel: Int = 0  // Level of least ancestor where all descendants are equivalent
+  var nonCheapLevel: Int = 1 // Level of greatest ancestor where cheapautom==FALSE
+  var stabVertex: Int = 0    // Vertex fixed in ancestor of first leaf at level gcaCanon
+  var cosetIndex: Int = 0    // The vertex being fixed at level gcaFirst
 
   // Statistics
   val stats = new StatsBuilder()
@@ -177,6 +179,32 @@ private class SparseNautyContext(
   }
 
   /**
+   * Check if partition cells are likely to be orbits (cheap heuristic).
+   * Returns TRUE if a simple sufficient condition is met for the partition
+   * cells to be orbits of some subgroup.
+   * Always returns FALSE for digraphs.
+   */
+  def cheapAutom(level: Int): Boolean = {
+    if (g.isDigraph) return false
+
+    var k = n
+    var nnt = 0
+    var i = 0
+    while (i < n) {
+      k -= 1
+      if (ptn(i) > level) {
+        nnt += 1
+        while (i < n - 1 && ptn(i) > level) {
+          i += 1
+        }
+      }
+      i += 1
+    }
+
+    k <= nnt + 1 || k <= 4
+  }
+
+  /**
    * Run the sparse nauty algorithm.
    */
   def run(): SparseNautyResult = {
@@ -185,7 +213,7 @@ private class SparseNautyContext(
 
     // Perform initial refinement using sparse refinement
     val numCellsRef = IntRef(numCells)
-    val code = SparseRefinement.refine(g, lab, ptn, 0, numCellsRef, active, m, n)
+    SparseRefinement.refine(g, lab, ptn, 0, numCellsRef, active, m, n)
 
     // Run the search
     firstPathNode(1, numCellsRef.value)
@@ -231,6 +259,13 @@ private class SparseNautyContext(
     saveState(level)
 
     val tv1 = lab(firstTc(level))
+
+    // Check cheapautom and update nonCheapLevel
+    if (nonCheapLevel >= level && !cheapAutom(level)) {
+      nonCheapLevel = level + 1
+    }
+
+    cosetIndex = tv1
     breakout(level, firstTc(level), tv1)
 
     val numCellsRef = IntRef(numCells + 1)
@@ -238,6 +273,8 @@ private class SparseNautyContext(
     firstCode(level) = code
 
     var retval = firstPathNode(level + 1, numCellsRef.value)
+    gcaFirst = level
+    stabVertex = tv1
 
     if (retval >= level) {
       restoreState(level)
@@ -259,6 +296,11 @@ private class SparseNautyContext(
       stats.multiplyGroupSize(index)
     }
 
+    // Update allSameLevel
+    if (tcellSize == index && allSameLevel == level + 1) {
+      allSameLevel -= 1
+    }
+
     retval
   }
 
@@ -268,6 +310,11 @@ private class SparseNautyContext(
   def otherNode(level: Int, numCells: Int): Int = {
     val tcStart = firstTc(level)
     val (_, tcEnd) = cellBounds(tcStart, level - 1)
+
+    // Check cheapautom and update nonCheapLevel
+    if (!cheapAutom(level)) {
+      nonCheapLevel = level + 1
+    }
 
     var i = tcStart + 1
     while (i < tcEnd) {
@@ -306,11 +353,11 @@ private class SparseNautyContext(
     stats.numNodes += 1
 
     if (numCells == n) {
-      processLeaf(level)
-      return level - 1
+      return processLeaf(level)
     }
 
     val tcellSize = makeTargetCell(level, numCells)
+    stats.tcTotal += tcellSize
     val tcStart = findCellStart(level)
 
     saveState(level)
@@ -357,6 +404,7 @@ private class SparseNautyContext(
     gcaCanon = level
     canonLevel = level
     eqlevCanon = level
+    allSameLevel = level
 
     if (options.getCanon != 0) {
       System.arraycopy(lab, 0, canonLab, 0, n)
@@ -367,24 +415,87 @@ private class SparseNautyContext(
 
   /**
    * Process a non-first leaf.
+   * Returns the level to return to (for pruning).
    */
-  def processLeaf(level: Int): Unit = {
+  def processLeaf(level: Int): Int = {
     stats.maxLevel = math.max(stats.maxLevel, level)
 
+    // Determine which case we're in
+    var code = 0
+
+    // Check for automorphism equivalent to first leaf
     if (eqlevFirst >= level - 1 && isAutomorphism()) {
-      val perm = new Array[Int](n)
-      computePermutation(perm)
-      recordAutomorphism(perm)
+      code = 1
     } else if (options.getCanon != 0) {
       val cmp = compareWithCanon()
-      if (cmp < 0) {
+      if (cmp == 0) {
+        code = 2
+      } else if (cmp > 0) {
+        code = 3
+      } else {
+        code = 4
+      }
+    } else {
+      code = 4
+    }
+
+    code match {
+      case 1 =>
+        val perm = new Array[Int](n)
+        computePermutation(perm)
+        recordAutomorphism(perm)
+        gcaFirst
+
+      case 2 =>
+        val perm = new Array[Int](n)
+        var i = 0
+        while (i < n) {
+          perm(canonLab(i)) = lab(i)
+          i += 1
+        }
+        val oldNumOrbits = stats.numOrbits
+        val numOrbits = Orbits.orbjoin(orbits, perm, n)
+        stats.numOrbits = numOrbits
+
+        if (numOrbits == oldNumOrbits) {
+          gcaCanon
+        } else {
+          generators += Permutation.fromArray(perm)
+          stats.numGenerators += 1
+          if (orbits(cosetIndex) < cosetIndex) {
+            gcaFirst
+          } else {
+            gcaCanon
+          }
+        }
+
+      case 3 =>
         System.arraycopy(lab, 0, canonLab, 0, n)
         updateCanon(level)
         stats.canUpdates += 1
         canonLevel = level
         eqlevCanon = level
-      }
+        gcaCanon = level
+        compCanon = 0
+        computeNewLevel(level)
+
+      case 4 =>
+        stats.numBadLeaves += 1
+        computeNewLevel(level)
+
+      case _ =>
+        level - 1
     }
+  }
+
+  /**
+   * Compute the return level using allSameLevel and nonCheapLevel.
+   */
+  private def computeNewLevel(level: Int): Int = {
+    // TODO: Re-enable allSameLevel optimization once tracking is verified correct
+    // val save = if (allSameLevel > eqlevCanon) allSameLevel - 1 else eqlevCanon
+    // if (nonCheapLevel <= save) nonCheapLevel - 1 else save
+    level - 1  // Simple fallback: just return to parent level
   }
 
   /**

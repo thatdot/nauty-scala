@@ -1,6 +1,6 @@
 # nauty-scala
 
-A partial Scala port of **nauty** (No AUTomorphisms, Yes?) - the graph automorphism and canonical labeling library.
+A Scala port of **nauty** - the graph automorphism and canonical labeling library.
 
 ## Credits
 
@@ -10,7 +10,9 @@ The nauty algorithm was developed by **Brendan McKay** and **Adolfo Piperno**. T
 - Website: https://pallini.di.uniroma1.it
 - Paper: B. D. McKay and A. Piperno, "Practical Graph Isomorphism, II", Journal of Symbolic Computation, 60 (2014), pp. 94-112.
 
-This Scala port is distributed under the same license as nauty. See the COPYRIGHT file in the nauty distribution.
+## License
+
+The original version of nauty is released under the APACHE 2.0 License. So is this version.
 
 ## Overview
 
@@ -18,14 +20,13 @@ This library provides:
 - **Graph automorphism group computation** - Find generators of the automorphism group
 - **Canonical labeling** - Compute a canonical form for graph isomorphism testing
 - **Graph I/O** - Read and write Graph6, Sparse6, and Digraph6 formats
-- **Cypher pattern support** - Canonicalize and find automorphisms of Cypher graph patterns
 
 ## Installation
 
 Add to your `build.sbt`:
 
 ```scala
-libraryDependencies += "com.thatdot" %% "nauty-scala" % "0.1.0-SNAPSHOT"
+libraryDependencies += "com.thatdot" %% "nauty-scala" % "0.9.0"
 ```
 
 Or build from source:
@@ -38,72 +39,18 @@ sbt publishLocal
 
 ## Quick Start
 
-### Basic Graph Operations
+To try these examples interactively, start a REPL session with `sbt console`.
+
+### Graph Construction
 
 ```scala
 import com.thatdot.nauty._
 import com.thatdot.nauty.graph._
 import com.thatdot.nauty.core._
-
-// Create a graph
-val g = DenseGraph.fromEdges(4, Seq((0, 1), (1, 2), (2, 3), (3, 0)))
-
-// Compute automorphism group
-val result = Nauty.densenauty(g)
-println(s"Group size: ${result.groupSize}")
-println(s"Number of orbits: ${result.numOrbits}")
-println(s"Generators: ${result.generators.map(_.toCycleString)}")
-
-// Test isomorphism
-val g2 = DenseGraph.fromEdges(4, Seq((0, 2), (2, 1), (1, 3), (3, 0)))
-val isIso = Nauty.isIsomorphic(g, g2)  // true
-
-// Compute canonical form
-val opts = NautyOptions.defaultGraph.withCanon
-val r = Nauty.densenauty(g, opts)
-val canonicalGraph = r.canonicalGraph.get
-```
-
-### Cypher Pattern Canonicalization
-
-```scala
-import com.thatdot.nauty.cypher.CypherPattern
-
-// Canonical hash (for pattern indexing/deduplication)
-val hash = CypherPattern.canonicalHash("(a:Person)-[:KNOWS]->(b:Person)")
-
-// Check if two patterns are isomorphic
-val isIso = CypherPattern.areIsomorphic(
-  "(a:Person)-[:KNOWS]->(b:Person)",
-  "(x:Person)-[:KNOWS]->(y:Person)"  // true - same structure
-)
-
-// Get automorphism group size
-val groupSize = CypherPattern.automorphismGroupSize("(a)-[:X]->(b)<-[:X]-(c)")  // 2
-
-// Get automorphism generators
-val generators = CypherPattern.automorphismGenerators("(a)-[:X]->(b)<-[:X]-(c)")
-
-// Generate all automorphic variants (variable swapping)
-val variants = CypherPattern.automorphicPatterns("(a)-[:X]->(b)<-[:X]-(c)")
-// List((a)-[:X]->(b)<-[:X]-(c), (c)-[:X]->(b)<-[:X]-(a))
-
-// Include syntactic variants (edge direction notation)
-val allVariants = CypherPattern.automorphicPatterns(
-  "(a:Person)-[:KNOWS]->(b:Person)",
-  includeSyntacticVariants = true
-)
-// List((a:Person)-[:KNOWS]->(b:Person), (b:Person)<-[:KNOWS]-(a:Person))
-```
-
-### Graph Construction
-
-```scala
-// Empty graph
-val empty = DenseGraph.empty(10)
+import com.thatdot.nauty.group._
 
 // From edge list
-val g = DenseGraph.fromEdges(5, Seq((0,1), (1,2), (2,3), (3,4), (4,0)))
+val square = DenseGraph.fromEdges(4, Seq((0,1), (1,2), (2,3), (3,0)))
 
 // Common graphs
 val complete = DenseGraph.complete(6)    // K6
@@ -114,51 +61,221 @@ val path = DenseGraph.path(5)            // P5
 val digraph = DenseGraph.fromEdges(3, Seq((0,1), (1,2), (2,0)), directed = true)
 ```
 
-### Graph I/O
+### Computing Automorphisms
 
 ```scala
-import com.thatdot.nauty.io._
+// The square (cycle of 4) has 8 automorphisms (dihedral group D4)
+val square = DenseGraph.cycle(4)
+val result = Nauty.densenauty(square)
 
-// Encode to Graph6
-val encoded = Graph6.encode(g)
+result.groupSize          // 8
+result.numOrbits          // 1 (all vertices equivalent)
+result.generators.size    // 2 generators suffice for D4
 
-// Decode from Graph6
-val decoded = Graph6.decode("D~{")
+// View generators in cycle notation
+result.generators.map(_.toCycleString)
+// e.g., List("(0 1 2 3)", "(0 3)(1 2)")
 
-// Sparse6 for sparse graphs
-val sparse6 = Sparse6.encode(g)
+// The first generator rotates, the second reflects
+val rotate = result.generators(0)
+val reflect = result.generators(1)
 
-// Digraph6 for directed graphs
-val digraph6 = Digraph6.encode(digraph)
+rotate.order   // 4 (rotate 4 times = identity)
+reflect.order  // 2 (reflect twice = identity)
 
-// Auto-detect format
-val g = GraphIO.decode(someString)
+// Generate the full group (all 8 elements)
+val fullGroup = Nauty.generateGroup(result.generators)
+fullGroup.size  // 8
+fullGroup.map(_.toCycleString).toSeq.sorted
+// List("()", "(0 1)(2 3)", "(0 1 2 3)", "(0 2)", "(0 2)(1 3)",
+//      "(0 3)(1 2)", "(0 3 2 1)", "(1 3)")
+```
+
+### The Petersen Graph
+
+The Petersen graph is a famous 3-regular graph on 10 vertices with automorphism group of order 120.
+
+```scala
+// Build Petersen graph: outer pentagon + inner pentagram + spokes
+val edges = Seq(
+  // Outer pentagon
+  (0,1), (1,2), (2,3), (3,4), (4,0),
+  // Inner pentagram (star)
+  (5,7), (7,9), (9,6), (6,8), (8,5),
+  // Spokes connecting outer to inner
+  (0,5), (1,6), (2,7), (3,8), (4,9)
+)
+val petersen = DenseGraph.fromEdges(10, edges)
+
+val result = Nauty.densenauty(petersen)
+result.groupSize   // 120 (isomorphic to S5, the symmetric group on 5 elements)
+result.numOrbits   // 1 (vertex-transitive: all vertices are equivalent)
+```
+
+### Graph Isomorphism
+
+```scala
+// Two different labelings of the same graph
+val g1 = DenseGraph.fromEdges(4, Seq((0,1), (1,2), (2,3), (3,0)))  // Square 0-1-2-3
+val g2 = DenseGraph.fromEdges(4, Seq((0,2), (2,1), (1,3), (3,0)))  // Square 0-2-1-3
+
+Nauty.isIsomorphic(g1, g2)  // true
+
+// A different graph (path, not cycle)
+val g3 = DenseGraph.fromEdges(4, Seq((0,1), (1,2), (2,3)))
+
+Nauty.isIsomorphic(g1, g3)  // false
+```
+
+### Canonical Forms and Hashing
+
+```scala
+// Canonical form produces a unique representative for each isomorphism class
+val g1 = DenseGraph.fromEdges(4, Seq((0,1), (1,2), (2,3), (3,0)))
+val g2 = DenseGraph.fromEdges(4, Seq((0,2), (2,1), (1,3), (3,0)))
+
+val c1 = Nauty.canonicalForm(g1)
+val c2 = Nauty.canonicalForm(g2)
+
+c1 == c2  // true - same canonical form
+
+// Canonical hash for indexing/deduplication
+val opts = NautyOptions.defaultGraph.withCanon
+val r1 = Nauty.densenauty(g1, opts)
+val r2 = Nauty.densenauty(g2, opts)
+
+r1.canonicalHash == r2.canonicalHash  // true
 ```
 
 ### Vertex Coloring (Partitions)
 
-```scala
-// Use initial partition to restrict automorphisms to color-preserving ones
-val opts = NautyOptions.defaultGraph
-  .withCanon
-  .withPartition(Seq(Seq(0, 1), Seq(2, 3)))  // Vertices 0,1 have one color; 2,3 another
+Use partitions to restrict automorphisms to those preserving vertex colors.
 
-val result = Nauty.densenauty(graph, opts)
+```scala
+// Triangle: normally has 6 automorphisms (S3)
+val triangle = DenseGraph.fromEdges(3, Seq((0,1), (1,2), (2,0)))
+Nauty.densenauty(triangle).groupSize  // 6
+
+// Color vertex 0 differently - now only 2 automorphisms (swap 1 and 2)
+val opts = NautyOptions.defaultGraph
+  .withPartition(Seq(Seq(0), Seq(1, 2)))  // vertex 0 alone, vertices 1,2 together
+
+val result = Nauty.densenauty(triangle, opts)
+result.groupSize  // 2
+result.generators.map(_.toCycleString)  // List("(1 2)")
+```
+
+### Working with Permutations
+
+```scala
+// Create permutations
+val p1 = Permutation(1, 2, 0, 3)             // From images: 0→1, 1→2, 2→0, 3→3
+val p2 = Permutation.cyclic(4)               // (0 1 2 3)
+val p3 = Permutation.transposition(4, 0, 1)  // Swap 0 and 1
+val p4 = Permutation.fromCycles(5, List(0, 1, 2), List(3, 4))  // (0 1 2)(3 4)
+
+// Cycle notation
+p1.toCycleString  // "(0 1 2)"
+p4.toCycleString  // "(0 1 2)(3 4)"
+
+// Properties
+p1.order          // 3 (p1^3 = identity)
+p4.order          // 6 (lcm of cycle lengths 3 and 2)
+p1.movedPoints    // Set(0, 1, 2)
+p1.fixedPoints    // Set(3)
+
+// Composition: (p1 * p3)(x) = p1(p3(x))
+val composed = p1 * p3
+
+// Inverse
+val inv = p1.inverse
+(p1 * inv).isIdentity  // true
+
+// Powers
+p2.pow(2).toCycleString  // "(0 2)(1 3)" - rotate twice
+p2.pow(4).isIdentity     // true
+```
+
+### Directed Graphs
+
+```scala
+// Directed cycle: 0→1→2→0
+val dirCycle = DenseGraph.fromEdges(3, Seq((0,1), (1,2), (2,0)), directed = true)
+val result = Nauty.densenauty(dirCycle, NautyOptions.defaultDigraph)
+
+result.groupSize  // 3 (can rotate but not reflect)
+result.generators.map(_.toCycleString)  // List("(0 1 2)")
+
+// Compare with undirected: triangle has 6 automorphisms
+val undirTriangle = DenseGraph.fromEdges(3, Seq((0,1), (1,2), (2,0)))
+Nauty.densenauty(undirTriangle).groupSize  // 6
+```
+
+### Schreier-Sims Algorithm
+
+Compute exact group order and test membership using Schreier-Sims.
+
+```scala
+val square = DenseGraph.cycle(4)
+val result = Nauty.densenauty(square)
+val generators = result.generators
+
+// Accurate group order
+val order = SchreierSims.groupOrder(generators, 4)  // 8
+
+// Test membership: is (0 2)(1 3) in the automorphism group?
+val p = Permutation.fromCycles(4, List(0, 2), List(1, 3))
+SchreierSims.isMember(p, generators, 4)  // true
+
+// Is (0 1 2) in the group? No - it would map the square to a non-square
+val bad = Permutation.fromCycles(4, List(0, 1, 2))
+SchreierSims.isMember(bad, generators, 4)  // false
+
+// Compute the full BSGS (Base and Strong Generating Set)
+val bsgs = SchreierSims.computeBSGS(generators, 4)
+bsgs.order                  // 8
+bsgs.base                   // Base points, e.g., Seq(0, 1)
+bsgs.strongGenerators.size  // Strong generators
+```
+
+### Graph I/O (Graph6/Sparse6/Digraph6)
+
+```scala
+import com.thatdot.nauty.io._
+
+// Encode graphs to standard formats
+val g6 = Graph6.encode(petersen)   // Compact ASCII encoding
+val s6 = Sparse6.encode(petersen)  // More efficient for sparse graphs
+
+// Decode
+val decoded = Graph6.decode(g6)
+Nauty.isIsomorphic(petersen, decoded)  // true
+
+// Digraph6 for directed graphs
+val dirGraph = DenseGraph.fromEdges(3, Seq((0,1), (1,2)), directed = true)
+val d6 = Digraph6.encode(dirGraph)
+val decodedDir = Digraph6.decode(d6)
+
+// Auto-detect format
+val g = GraphIO.decode(encodedString)
 ```
 
 ### Sparse Graphs
 
-```scala
-import com.thatdot.nauty._
+For large sparse graphs, use native sparse algorithms for efficiency.
 
-// Create sparse graph (more efficient for graphs with few edges)
+```scala
+import com.thatdot.nauty.graph.SparseGraph
+
+// Create sparse graph
+val edges = (0 until 1000).map(i => (i, (i + 1) % 1000))  // Cycle of 1000
 val sg = SparseGraph.fromEdges(1000, edges)
 
-// Process natively without converting to dense representation
+// Native sparse nauty - no conversion to dense
 val result = Nauty.sparsenauty(sg)
-println(s"Group size: ${result.groupSize}")
+result.groupSize  // 2000 (dihedral group D1000)
 
-// Convert between representations
+// Convert between representations when needed
 val dense = sg.toDense
 val sparse = dense.toSparse
 ```
@@ -168,28 +285,8 @@ val sparse = dense.toSparse
 ```scala
 // Apply a permutation to relabel a graph
 // Result has edge (p(v), p(w)) iff original has edge (v, w)
-val perm = Array(2, 0, 1, 3)  // vertex 0->2, 1->0, 2->1, 3->3
+val perm = Array(2, 0, 1, 3)  // vertex 0→2, 1→0, 2→1, 3→3
 val relabeled = graph.permute(perm)
-```
-
-### Schreier-Sims Group Order
-
-```scala
-import com.thatdot.nauty.group.SchreierSims
-
-// Compute exact group order from generators
-val result = Nauty.densenauty(g)
-val groupOrder: BigInt = SchreierSims.groupOrder(result.generators, g.n)
-
-// Test if a permutation is in the group
-val perm = Permutation(1, 0, 3, 2)
-val isMember = SchreierSims.isMember(perm, result.generators, g.n)
-```
-
-### Running the Example
-
-```bash
-sbt "runMain com.thatdot.nauty.examples.CypherExample"
 ```
 
 ## Package Structure
@@ -198,8 +295,6 @@ sbt "runMain com.thatdot.nauty.examples.CypherExample"
 com.thatdot.nauty/
 ├── bits/           # SetWord, BitOps utilities
 ├── core/           # Nauty algorithm, Partition, Refinement
-├── cypher/         # Cypher pattern parsing and canonicalization (demonstration)
-├── examples/       # Example usage (CypherExample)
 ├── graph/          # DenseGraph, SparseGraph
 ├── group/          # Permutation, Orbits, SchreierSims
 ├── io/             # Graph6, Sparse6, Digraph6 codecs
@@ -210,7 +305,7 @@ com.thatdot.nauty/
 
 This is a **partial port** of nauty. The following features are implemented:
 
-### Implemented (Phases 1-4, 6)
+### Implemented
 
 | Feature | Status | Notes |
 |---------|--------|-------|
@@ -228,27 +323,26 @@ This is a **partial port** of nauty. The following features are implemented:
 | Sparse6 I/O | ✅ Complete | Encode/decode |
 | Digraph6 I/O | ✅ Complete | Encode/decode |
 | Initial partition support | ✅ Complete | Vertex coloring |
-| Cypher pattern support | ✅ Complete | Parse, canonicalize, automorphisms |
 | Schreier-Sims | ✅ Complete | BSGS computation, group order, membership testing (pruneset not implemented) |
 | Sparse-specific algorithms | ✅ Complete | Native sparse refinement, automorphism testing, `sparsenauty()` |
 
-### Not Yet Implemented (Phases 5, 7)
+### Not Yet Implemented
 
-| Feature | Phase | Priority | Complexity |
-|---------|-------|----------|------------|
-| **Traces algorithm** | 5 | Low | High |
-| - Candidate lists and search trie | | | ~10,500 lines in C |
-| - Traces-specific refinement | | | |
-| - Experimental path handling | | | |
-| **Vertex invariants** | - | Low | Medium |
-| - Adjacency-based invariants | | | |
-| - Distance-based invariants | | | |
-| **Advanced pruning** | - | Medium | Medium |
-| - Short prune optimization | | | |
-| - Long prune optimization | | | |
-| **Performance tuning** | 7 | Medium | Varies |
-| - JMH benchmarks | | | |
-| - Optimization passes | | | |
+| Feature | Priority | Complexity |
+|---------|----------|------------|
+| **Traces algorithm** | Low | High |
+| - Candidate lists and search trie | | ~10,500 lines in C |
+| - Traces-specific refinement | | |
+| - Experimental path handling | | |
+| **Vertex invariants** | Low | Medium |
+| - Adjacency-based invariants | | |
+| - Distance-based invariants | | |
+| **Advanced pruning** | Medium | Medium |
+| - Short prune optimization | | |
+| - Long prune optimization | | |
+| **Performance tuning** | Medium | Varies |
+| - JMH benchmarks | | |
+| - Optimization passes | | |
 
 ### Known Limitations
 
@@ -278,11 +372,7 @@ sbt test
 ## Contributing
 
 Contributions are welcome, especially for:
-- Traces algorithm (Phase 5)
+- Traces algorithm
 - Schreier-Sims pruneset optimization
 - Performance improvements
 - Additional test cases
-
-## License
-
-This Scala port is distributed under the same license as nauty. See the COPYRIGHT file in the nauty distribution.

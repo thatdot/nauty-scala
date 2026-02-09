@@ -1,7 +1,7 @@
 package com.thatdot.nauty.core
 
-import com.thatdot.nauty.bits.{SetWord, BitOps, SetOps}
-import com.thatdot.nauty.graph.{DenseGraph, SparseGraph, Graph}
+import com.thatdot.nauty.bits.{SetWord, SetOps}
+import com.thatdot.nauty.graph.{DenseGraph, SparseGraph}
 import com.thatdot.nauty.group.{Permutation, Orbits, SchreierSims}
 import com.thatdot.nauty.util.{NautyOptions, NautyStats, StatsBuilder}
 
@@ -68,8 +68,6 @@ case class NautyResult(
  * computation algorithm of Brendan McKay.
  */
 object Nauty {
-  private val NAUTY_INFINITY = 2000000002
-
   /**
    * Compute automorphism group and canonical labeling of a dense graph.
    *
@@ -253,8 +251,10 @@ private class NautyContext(
   var compCanon: Int = 0     // Comparison with canon
   var canonLevel: Int = 0    // Level of best leaf
   var sameRows: Int = 0      // Rows matching in canong
-  var allSameLevel: Int = 0
-  var nonCheapLevel: Int = 1
+  var allSameLevel: Int = 0  // Level of least ancestor where all descendants are equivalent
+  var nonCheapLevel: Int = 1 // Level of greatest ancestor where cheapautom==FALSE
+  var stabVertex: Int = 0    // Vertex fixed in ancestor of first leaf at level gcaCanon
+  var cosetIndex: Int = 0    // The vertex being fixed at level gcaFirst
 
   // Statistics
   val stats = new StatsBuilder()
@@ -333,6 +333,36 @@ private class NautyContext(
   }
 
   /**
+   * Check if partition cells are likely to be orbits (cheap heuristic).
+   * Returns TRUE if a simple sufficient condition is met for the partition
+   * cells to be orbits of some subgroup.
+   * Always returns FALSE for digraphs.
+   *
+   * This matches C nauty's cheapautom() function.
+   */
+  def cheapAutom(level: Int): Boolean = {
+    if (g.isDigraph) return false
+
+    // Count non-singleton elements and non-trivial cells
+    var k = n  // Will become count of non-singleton elements
+    var nnt = 0  // Number of non-trivial (non-singleton) cells
+    var i = 0
+    while (i < n) {
+      k -= 1
+      if (ptn(i) > level) {
+        nnt += 1
+        while (i < n - 1 && ptn(i) > level) {
+          i += 1
+        }
+      }
+      i += 1
+    }
+
+    // Return true if partition looks "cheap" to verify
+    k <= nnt + 1 || k <= 4
+  }
+
+  /**
    * Run the nauty algorithm.
    */
   def run(): NautyResult = {
@@ -342,7 +372,7 @@ private class NautyContext(
 
     // Perform initial refinement
     val numCellsRef = IntRef(numCells)
-    val code = Refinement.refine(g, lab, ptn, 0, numCellsRef, active, m, n)
+    Refinement.refine(g, lab, ptn, 0, numCellsRef, active, m, n)
 
     // Run the search
     firstPathNode(1, numCellsRef.value)
@@ -395,7 +425,13 @@ private class NautyContext(
     // Remember the first vertex in target cell (tv1 in C nauty)
     val tv1 = lab(firstTc(level))
 
+    // Check cheapautom and update nonCheapLevel
+    if (nonCheapLevel >= level && !cheapAutom(level)) {
+      nonCheapLevel = level + 1
+    }
+
     // Process first element
+    cosetIndex = tv1
     breakout(level, firstTc(level), tv1)
 
     // Refine
@@ -403,8 +439,10 @@ private class NautyContext(
     val code = Refinement.refine(g, lab, ptn, level, numCellsRef, active, m, n)
     firstCode(level) = code
 
-    // Recurse
+    // Recurse - first child sets gca_first and stabVertex
     var retval = firstPathNode(level + 1, numCellsRef.value)
+    gcaFirst = level
+    stabVertex = tv1
 
     // Process other children if not shortcut
     if (retval >= level) {
@@ -412,16 +450,13 @@ private class NautyContext(
       retval = otherNode(level, numCells)
     }
 
-    // FIX #1: Group size calculation using orbit index (like C nauty)
+    // Group size calculation using orbit index (like C nauty)
     // Count vertices in target cell that are in same orbit as tv1
-    // This is the index of the stabilizer (number of equivalent vertices)
     val (_, tcEnd) = cellBounds(firstTc(level), level - 1)
     var index = 0
     var i = firstTc(level)
     while (i < tcEnd) {
-      // Get the vertex at position i from the saved labeling
       val v = labStack(level)(i)
-      // Check if this vertex is in the same orbit as tv1
       if (Orbits.sameOrbit(orbits, v, tv1)) {
         index += 1
       }
@@ -429,6 +464,12 @@ private class NautyContext(
     }
     if (index > 0) {
       stats.multiplyGroupSize(index)
+    }
+
+    // Update allSameLevel: if all vertices in target cell ended up in the same orbit,
+    // then all descendant leaves are equivalent
+    if (tcellSize == index && allSameLevel == level + 1) {
+      allSameLevel -= 1
     }
 
     retval
@@ -441,6 +482,11 @@ private class NautyContext(
     // Get target cell
     val tcStart = firstTc(level)
     val (_, tcEnd) = cellBounds(tcStart, level - 1)
+
+    // Check cheapautom and update nonCheapLevel
+    if (!cheapAutom(level)) {
+      nonCheapLevel = level + 1
+    }
 
     var i = tcStart + 1
     while (i < tcEnd) {
@@ -486,11 +532,11 @@ private class NautyContext(
 
     if (numCells == n) {
       // Reached a leaf - check for automorphism or better canon
-      processLeaf(level)
-      return level - 1
+      return processLeaf(level)
     }
 
     val tcellSize = makeTargetCell(level, numCells)
+    stats.tcTotal += tcellSize
     val tcStart = findCellStart(level)
 
     saveState(level)
@@ -554,30 +600,97 @@ private class NautyContext(
 
   /**
    * Process a non-first leaf.
+   * Returns the level to return to (for pruning).
+   *
+   * This implements the logic of C nauty's processnode() function.
    */
-  def processLeaf(level: Int): Unit = {
+  def processLeaf(level: Int): Int = {
     stats.maxLevel = math.max(stats.maxLevel, level)
 
-    // Check if this is an automorphism
-    // Only check if codes matched all the way down (eqlevFirst == level)
-    // This is a precondition from the C implementation
+    // Determine which case we're in (matching C nauty's code values 0-4)
+    var code = 0
+
+    // Check for automorphism equivalent to first leaf
     if (eqlevFirst >= level - 1 && isAutomorphism()) {
-      // Found an automorphism
-      val perm = new Array[Int](n)
-      computePermutation(perm)
-      recordAutomorphism(perm)
+      code = 1  // Automorphism equivalent to first leaf
     } else if (options.getCanon != 0) {
-      // Check if better than current canonical
       val cmp = compareWithCanon()
-      if (cmp < 0) {
+      if (cmp == 0) {
+        code = 2  // Automorphism equivalent to canonical leaf
+      } else if (cmp > 0) {
+        code = 3  // Better canonical labeling found
+      } else {
+        code = 4  // Worse than canonical
+      }
+    } else {
+      code = 4  // Non-automorphism terminal
+    }
+
+    code match {
+      case 1 =>
+        // lab is equivalent to firstlab - automorphism found
+        val perm = new Array[Int](n)
+        computePermutation(perm)
+        recordAutomorphism(perm)
+        gcaFirst  // Return to level of GCA with first leaf
+
+      case 2 =>
+        // lab is equivalent to canonlab
+        val perm = new Array[Int](n)
+        // Compute perm from canonLab to lab
+        var i = 0
+        while (i < n) {
+          perm(canonLab(i)) = lab(i)
+          i += 1
+        }
+        val oldNumOrbits = stats.numOrbits
+        val numOrbits = Orbits.orbjoin(orbits, perm, n)
+        stats.numOrbits = numOrbits
+
+        if (numOrbits == oldNumOrbits) {
+          // Orbits didn't change - already known automorphism
+          gcaCanon
+        } else {
+          // New automorphism information
+          generators += Permutation.fromArray(perm)
+          stats.numGenerators += 1
+          if (orbits(cosetIndex) < cosetIndex) {
+            gcaFirst
+          } else {
+            gcaCanon
+          }
+        }
+
+      case 3 =>
         // Better canonical labeling found
         System.arraycopy(lab, 0, canonLab, 0, n)
         updateCanon(level)
         stats.canUpdates += 1
         canonLevel = level
         eqlevCanon = level
-      }
+        gcaCanon = level
+        compCanon = 0
+        computeNewLevel(level)
+
+      case 4 =>
+        // Non-automorphism terminal node
+        stats.numBadLeaves += 1
+        computeNewLevel(level)
+
+      case _ =>
+        level - 1
     }
+  }
+
+  /**
+   * Compute the return level using allSameLevel and nonCheapLevel.
+   * This implements C nauty's logic for determining how far to prune.
+   */
+  private def computeNewLevel(level: Int): Int = {
+    // TODO: Re-enable allSameLevel optimization once tracking is verified correct
+    // val save = if (allSameLevel > eqlevCanon) allSameLevel - 1 else eqlevCanon
+    // if (nonCheapLevel <= save) nonCheapLevel - 1 else save
+    level - 1  // Simple fallback: just return to parent level
   }
 
   /**
@@ -592,15 +705,20 @@ private class NautyContext(
     computePermutation(perm)
 
     // Check if perm is an automorphism
+    var isValid = true
     var i = 0
-    while (i < n) {
+    while (i < n && isValid) {
       val neighbors = g.neighbors(i)
-      for (j <- neighbors) {
-        if (!g.hasEdge(perm(i), perm(j))) return false
+      var j = 0
+      while (j < neighbors.length && isValid) {
+        if (!g.hasEdge(perm(i), perm(neighbors(j)))) {
+          isValid = false
+        }
+        j += 1
       }
       i += 1
     }
-    true
+    isValid
   }
 
   /**

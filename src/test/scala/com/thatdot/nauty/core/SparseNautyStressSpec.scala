@@ -430,8 +430,10 @@ class SparseNautyStressSpec extends AnyFlatSpec with Matchers {
   // PRISM GRAPHS
   //
 
-  "Prism graph Y_n" should "have automorphism group D_n x Z_2 for n >= 3" in {
+  "Prism graph Y_n" should "have correct automorphism group for n >= 3" in {
     // Y_n has 2n vertices: outer ring 0..n-1, inner ring n..2n-1
+    // For n != 4: Aut(Y_n) = D_n x Z_2, order 4n
+    // For n = 4: Y_4 = C_4 □ K_2 ≅ Q_3 (3-cube), Aut(Q_3) has order 2^3 * 3! = 48
     for (n <- 3 to 6) {
       val outerRing = (0 until n).map(i => (i, (i + 1) % n))
       val innerRing = (0 until n).map(i => (n + i, n + (i + 1) % n))
@@ -440,8 +442,9 @@ class SparseNautyStressSpec extends AnyFlatSpec with Matchers {
 
       val result = SparseNauty.sparsenauty(g, NautyOptions.defaultSparseGraph.withSchreier)
 
+      val expected = if (n == 4) 48 else 4 * n
       withClue(s"Y_$n group size: ") {
-        result.groupSize shouldBe BigDecimal(4 * n)  // |D_n x Z_2| = 2n * 2
+        result.groupSize shouldBe BigDecimal(expected)
       }
     }
   }

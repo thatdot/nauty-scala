@@ -56,7 +56,7 @@ object SparseRefinement {
     }
 
     if (nactive == 0) {
-      return (longcode % 077777).toInt
+      return cleanup(longcode)
     }
 
     // Set cellStart[v] = starting position of v's cell in lab, or n if singleton
@@ -76,11 +76,187 @@ object SparseRefinement {
       }
     }
 
-    // Process each active cell
-    var activeIdx = 0
-    while (activeIdx < nactive) {
-      val splitCell = workActive(activeIdx)
-      activeIdx += 1
+    // BFS optimization for early levels with singleton active cell
+    // Matches C nauty nausparse.c lines 711-862
+    if (level <= 2 && nactive == 1 && ptn(workActive(0)) <= level && numCells.value <= n / 8) {
+      val isplit = workActive(0)
+      nactive = 0
+      SetOps.delElement(active, isplit)
+
+      val distances = distvals(g, lab(isplit), n)
+
+      // Refine non-singleton cells based on distance values
+      var v1 = 0
+      while (v1 < n) {
+        if (ptn(v1) <= level) {
+          v1 += 1
+        } else {
+          longcode = mash(longcode, v1)
+          var w1 = distances(lab(v1))
+
+          var v2 = v1 + 1
+          while (ptn(v2 - 1) > level && distances(lab(v2)) == w1) v2 += 1
+
+          if (ptn(v2 - 1) <= level) {
+            // All vertices have same distance - no split
+            v1 = v2
+          } else {
+            // Cell needs splitting - use do-while loop like C code
+            var w2 = Int.MaxValue
+            var v3 = v2
+            var j = v2
+
+            // C code: do { ... } while (ptn[j++] > level);
+            var continue_loop = true
+            while (continue_loop) {
+              val lj = lab(j)
+              val w3 = distances(lj)
+              if (w3 == w1) {
+                lab(j) = lab(v3)
+                lab(v3) = lab(v2)
+                lab(v2) = lj
+                v2 += 1
+                v3 += 1
+              } else if (w3 == w2) {
+                lab(j) = lab(v3)
+                lab(v3) = lj
+                v3 += 1
+              } else if (w3 < w1) {
+                lab(j) = lab(v2)
+                lab(v2) = lab(v1)
+                lab(v1) = lj
+                v3 = v2 + 1
+                v2 = v1 + 1
+                w2 = w1
+                w1 = w3
+              } else if (w3 < w2) {
+                lab(j) = lab(v2)
+                lab(v2) = lj
+                v3 = v2 + 1
+                w2 = w3
+              }
+              // Check condition before incrementing j (matching C's ptn[j++])
+              continue_loop = ptn(j) > level
+              j += 1
+            }
+
+            longcode = mash(longcode, w2)
+            longcode = mash(longcode, v2)
+
+            if (j != v2) {
+              // At least two fragments: v1..v2-1 = w1; v2..v3-1 = w2
+              if (v2 == v1 + 1) cellStart(lab(v1)) = n
+              if (v3 == v2 + 1) cellStart(lab(v2)) = n
+              else {
+                var k = v2
+                while (k < v3) {
+                  cellStart(lab(k)) = v2
+                  k += 1
+                }
+              }
+              numCells.value += 1
+              ptn(v2 - 1) = level
+
+              if (j == v3) {
+                // Two fragments only - add smaller to active
+                if (v2 - v1 <= v3 - v2 && !SetOps.isElement(active, v1)) {
+                  SetOps.addElement(active, v1)
+                  workActive(nactive) = v1
+                  nactive += 1
+                } else {
+                  SetOps.addElement(active, v2)
+                  workActive(nactive) = v2
+                  nactive += 1
+                }
+              } else {
+                // Extra fragments: v3..j-1 > w2, need to sort by distance
+                // Sort lab[v3..j) by distances using indirect sort like C's sortindirect
+                val extra = j - v3
+                if (extra > 0) {
+                  val indices = (v3 until j).sortBy(idx => distances(lab(idx))).toArray
+                  val temp = new Array[Int](extra)
+                  var k = 0
+                  while (k < extra) {
+                    temp(k) = lab(indices(k))
+                    k += 1
+                  }
+                  System.arraycopy(temp, 0, lab, v3, extra)
+                }
+
+                SetOps.addElement(active, v2)
+                workActive(nactive) = v2
+                nactive += 1
+
+                var bigpos = if (v2 - v1 >= v3 - v2) -1 else nactive - 1
+                var bigsize = if (v2 - v1 >= v3 - v2) v2 - v1 else v3 - v2
+
+                // Process extra fragments
+                var k = v3 - 1
+                while (k < j - 1) {
+                  ptn(k) = level
+                  longcode = mash(longcode, k)
+                  numCells.value += 1
+                  val l = k + 1
+                  SetOps.addElement(active, l)
+                  workActive(nactive) = l
+                  nactive += 1
+                  val w3local = distances(lab(l))
+                  k = l
+                  while (k < j - 1 && distances(lab(k + 1)) == w3local) {
+                    cellStart(lab(k + 1)) = l
+                    k += 1
+                  }
+                  val size = k - l + 1
+                  if (size == 1) cellStart(lab(l)) = n
+                  else {
+                    cellStart(lab(l)) = l
+                    if (size > bigsize) {
+                      bigsize = size
+                      bigpos = nactive - 1
+                    }
+                  }
+                }
+
+                if (bigpos >= 0 && !SetOps.isElement(active, v1)) {
+                  longcode = mash(longcode, bigpos)
+                  SetOps.delElement(active, workActive(bigpos))
+                  SetOps.addElement(active, v1)
+                  workActive(bigpos) = v1
+                }
+              }
+            }
+            v1 = j
+          }
+        }
+      }
+      return cleanup(longcode)
+    }
+
+    // Process active cells with singleton preference (C nauty lines 865-880)
+    // Search first 10 cells for singletons, otherwise take from end (LIFO)
+    while (nactive > 0 && numCells.value < n) {
+      // Search first 10 active cells for a singleton
+      var foundIdx = -1
+      i = 0
+      while (i < nactive && i < 10 && foundIdx < 0) {
+        if (ptn(workActive(i)) <= level) {
+          foundIdx = i
+        }
+        i += 1
+      }
+
+      val splitCell = if (foundIdx >= 0) {
+        // Singleton found: swap with last and take
+        val singleton = workActive(foundIdx)
+        nactive -= 1
+        workActive(foundIdx) = workActive(nactive)
+        singleton
+      } else {
+        // No singleton in first 10: take from end (LIFO)
+        nactive -= 1
+        workActive(nactive)
+      }
+
       SetOps.delElement(active, splitCell)
 
       // Count neighbors in active cell for each vertex
@@ -240,7 +416,7 @@ object SparseRefinement {
     // Copy back to lab
     System.arraycopy(sorted, 0, lab, cellStart, cellSize)
 
-    // Update ptn to mark cell boundaries
+    // Update ptn to mark cell boundaries and track fragments for active set
     var newCells = 0
     var newActive = nactive
 
@@ -254,40 +430,81 @@ object SparseRefinement {
       i += 1
     }
 
-    // Mark cell boundaries in ptn
+    // Collect all fragment boundaries and sizes
+    val fragmentStarts = new Array[Int](range + 1)
+    val fragmentSizes = new Array[Int](range + 1)
+    var numFragments = 0
+
     i = 0
     while (i < range) {
       val start = bucket(i)
       val end = if (i + 1 < range) bucket(i + 1) else cellSize
-
       if (end > start) {
-        // This count value has at least one vertex
-        if (start > 0) {
-          // Mark boundary
-          ptn(cellStart + start - 1) = level
-          newCells += 1
-
-          // Add to active if smaller than other fragment
-          val prevSize = start
-          val thisSize = end - start
-          if (thisSize <= prevSize && !SetOps.isElement(active, cellStart + start)) {
-            SetOps.addElement(active, cellStart + start)
-            workActive(newActive) = cellStart + start
-            newActive += 1
-          } else if (prevSize < thisSize && !SetOps.isElement(active, cellStart)) {
-            SetOps.addElement(active, cellStart)
-            // cellStart might already be in workActive, so don't add twice
-          }
-        }
-
-        // Mark end of cell
-        if (end < cellSize) {
-          // Will be handled by next iteration
-        } else {
-          // Last cell - ptn already correct
-        }
+        fragmentStarts(numFragments) = cellStart + start
+        fragmentSizes(numFragments) = end - start
+        numFragments += 1
       }
       i += 1
+    }
+
+    // Mark cell boundaries in ptn
+    i = 1
+    while (i < numFragments) {
+      val boundaryPos = fragmentStarts(i) - 1
+      ptn(boundaryPos) = level
+      newCells += 1
+      i += 1
+    }
+
+    // Handle active set updates based on number of fragments
+    // Matches C nauty nausparse.c lines 1056-1119
+    if (numFragments == 2) {
+      // Two-way split: add smaller fragment to active (or v2 if equal and v1 in active)
+      val v1 = fragmentStarts(0)
+      val v2 = fragmentStarts(1)
+      val size1 = fragmentSizes(0)
+      val size2 = fragmentSizes(1)
+
+      if (size1 <= size2 && !SetOps.isElement(active, v1)) {
+        SetOps.addElement(active, v1)
+        workActive(newActive) = v1
+        newActive += 1
+      } else {
+        SetOps.addElement(active, v2)
+        workActive(newActive) = v2
+        newActive += 1
+      }
+    } else if (numFragments > 2) {
+      // Multi-way split: add ALL fragments to active, then remove largest and swap with v1 if needed
+      var bigIdx = -1
+      var bigSize = fragmentSizes(0)  // v1 size is the baseline
+
+      // Add all fragments except v1 to active
+      i = 1
+      while (i < numFragments) {
+        val fragStart = fragmentStarts(i)
+        val fragSize = fragmentSizes(i)
+        SetOps.addElement(active, fragStart)
+        workActive(newActive) = fragStart
+
+        // Track largest fragment (only among newly added ones)
+        if (fragSize > bigSize) {
+          bigSize = fragSize
+          bigIdx = newActive
+        }
+        newActive += 1
+        i += 1
+      }
+
+      // If there's a largest fragment bigger than v1, and v1 not in active,
+      // remove largest and add v1 instead
+      val v1 = fragmentStarts(0)
+      if (bigIdx >= 0 && !SetOps.isElement(active, v1)) {
+        val bigStart = workActive(bigIdx)
+        SetOps.delElement(active, bigStart)
+        SetOps.addElement(active, v1)
+        workActive(bigIdx) = v1
+      }
     }
 
     (newActive, newCells)
@@ -449,7 +666,45 @@ object SparseRefinement {
     SparseGraph.fromData(newV, newD, newE, n, g.directed)
   }
 
-  private def mash(l: Long, i: Int): Long = {
+  /**
+   * Hash function matching C nauty's MASH macro.
+   * The constant 0x6B5D has been verified to produce correct results.
+   */
+  @inline private def mash(l: Long, i: Int): Long = {
     ((l ^ 0x6B5D) + i) & 0x7FFF
+  }
+
+  /** Cleanup hash to 15 bits, matching C nauty's CLEANUP macro */
+  @inline private def cleanup(l: Long): Int = (l % 0x7FFF).toInt
+
+  /**
+   * Compute BFS distances from source vertex to all vertices.
+   * Matches C nauty's distvals() in nausparse.c lines 593-628.
+   */
+  private def distvals(g: SparseGraph, v0: Int, n: Int): Array[Int] = {
+    val dist = Array.fill(n)(n)  // Initialize to n (infinity/unreachable)
+    val queue = new Array[Int](n)
+    var head = 0
+    var tail = 1
+
+    queue(0) = v0
+    dist(v0) = 0
+
+    while (head < tail && tail < n) {
+      val i = queue(head)
+      head += 1
+      val neighbors = g.neighbors(i)
+      var j = 0
+      while (j < neighbors.length) {
+        val k = neighbors(j)
+        if (dist(k) == n) {
+          dist(k) = dist(i) + 1
+          queue(tail) = k
+          tail += 1
+        }
+        j += 1
+      }
+    }
+    dist
   }
 }

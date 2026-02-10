@@ -201,7 +201,10 @@ private class SchreierBuilder(val n: Int) {
   // Stabilizer chain levels
   private val levels = mutable.ArrayBuffer[SchreierLevel]()
 
-  private val random = new Random()
+  // The C nauty code uses a deterministic PRNG (KRAN macro defined in naurng.h)
+  // with built-in default seed values, making the randomized Schreier-Sims
+  // algorithm reproducible. We use a fixed seed here to match that behavior.
+  private val random = new Random(0x5EED_CAFE_BABEL)
   private val workperm = new Array[Int](n)
 
   /**

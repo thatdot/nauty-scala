@@ -38,12 +38,14 @@ object SchreierSims {
       builder.filterschreier(gen.toArray, inGroup = false)
     }
 
-    // Like C nauty's grouporder():
-    // - getorbits() calls expandschreier() once
-    // - grouporder() then calls expandschreier() twice more
-    builder.expandschreier()
-    builder.expandschreier()
-    builder.expandschreier()
+    // Expand the BSGS using random products.
+    // The number of iterations needed depends on the generator order.
+    // With "bad" orderings (e.g., adjacent transpositions in reverse),
+    // we may need more iterations for the random products to find
+    // missing group elements. 10 iterations is sufficient empirically.
+    for (_ <- 1 to 10) {
+      builder.expandschreier()
+    }
 
     builder.toBSGS
   }

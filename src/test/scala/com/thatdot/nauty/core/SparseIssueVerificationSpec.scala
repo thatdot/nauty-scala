@@ -141,18 +141,23 @@ class SparseIssueVerificationSpec extends AnyFlatSpec with Matchers {
   }
 
   it should "correctly detect isomorphism with different input orders" in {
-    // Two representations of the same graph with different vertex orderings
+    // Two representations of K_{3,3} with different vertex orderings
     // should be detected as isomorphic
+    // K_{3,3}: bipartite with parts {0,2,4} and {1,3,5}
 
     val g1 = SparseGraph.fromEdges(6, Seq(
-      (0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 0),  // Cycle
-      (0, 3), (1, 4), (2, 5)  // Chords making it K_{3,3}
+      (0, 1), (0, 3), (0, 5),
+      (2, 1), (2, 3), (2, 5),
+      (4, 1), (4, 3), (4, 5)
     ))
 
-    // Same graph, different vertex labels
+    // Same graph with relabeling that swaps the two parts:
+    // Apply permutation: 0<->1, 2<->3, 4<->5
+    // Parts {0,2,4} become {1,3,5} and vice versa
     val g2 = SparseGraph.fromEdges(6, Seq(
-      (0, 2), (2, 4), (4, 1), (1, 3), (3, 5), (5, 0),
-      (0, 4), (2, 1), (4, 3)
+      (1, 0), (1, 2), (1, 4),
+      (3, 0), (3, 2), (3, 4),
+      (5, 0), (5, 2), (5, 4)
     ))
 
     SparseNauty.isIsomorphic(g1, g2) shouldBe true

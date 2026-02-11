@@ -2,7 +2,7 @@ package com.thatdot.nauty.core
 
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
-import com.thatdot.nauty.graph.{SparseGraph, DenseGraph}
+import com.thatdot.nauty.graph.SparseGraph
 import com.thatdot.nauty.util.NautyOptions
 import com.thatdot.nauty.group.Permutation
 import scala.util.Random
@@ -22,10 +22,18 @@ class SparseNautyStressSpec extends AnyFlatSpec with Matchers {
 
   private def isValidAutomorphism(g: SparseGraph, perm: Permutation): Boolean = {
     val n = g.n
-    for (i <- 0 until n; j <- g.neighbors(i)) {
-      if (!g.hasEdge(perm(i), perm(j))) return false
+    var i = 0
+    var isValid = true
+    while (i < n && isValid) {
+      val neighbors = g.neighbors(i)
+      var idx = 0
+      while (idx < neighbors.length && isValid) {
+        if (!g.hasEdge(perm(i), perm(neighbors(idx)))) isValid = false
+        idx += 1
+      }
+      i += 1
     }
-    true
+    isValid
   }
 
   // Helper to create a random permutation of a graph
@@ -540,28 +548,8 @@ class SparseNautyStressSpec extends AnyFlatSpec with Matchers {
   }
 
   "Dodecahedron graph" should "have automorphism group of order 120" in {
-    // Dodecahedron: 20 vertices, 30 edges, |Aut| = 120 (same as A_5)
-    // Standard construction with labeled vertices
-    val edges = Seq(
-      // Top cap: vertex 0 connected to pentagon 1-5
-      (0, 1), (0, 2), (0, 3), (0, 4), (0, 5),
-      // Top pentagon (1-5) - NOT a cycle, but alternating connections
-      (1, 6), (2, 7), (3, 8), (4, 9), (5, 10),
-      // Upper ring connections
-      (6, 7), (7, 8), (8, 9), (9, 10), (10, 6),
-      // Middle connections
-      (6, 11), (7, 12), (8, 13), (9, 14), (10, 15),
-      // Lower ring connections
-      (11, 12), (12, 13), (13, 14), (14, 15), (15, 11),
-      // Bottom pentagon (16-19 and wrapping)
-      (11, 16), (12, 17), (13, 18), (14, 19), (15, 16),
-      // Bottom cap: vertex 19 is center - wait this doesn't work
-      // Let me use a different standard construction
-      (16, 17), (17, 18), (18, 19), (19, 16)
-    )
-
-    // Actually, let me use the standard edge list for dodecahedron
-    // Using vertices 0-19 with specific adjacencies
+    // Dodecahedron: 20 vertices, 30 edges, |Aut| = 120 (isomorphic to A_5)
+    // Standard edge list using vertices 0-19
     val dodecahedronEdges = Seq(
       (0,1), (0,4), (0,5),
       (1,2), (1,6),

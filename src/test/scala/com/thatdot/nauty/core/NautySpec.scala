@@ -14,12 +14,19 @@ class NautySpec extends AnyFlatSpec with Matchers {
   // Helper to verify a permutation is an automorphism of graph g
   private def isAutomorphism(g: DenseGraph, perm: Permutation): Boolean = {
     val n = g.n
-    for (i <- 0 until n; j <- 0 until n) {
-      val hasOriginal = g.hasEdge(i, j)
-      val hasPermuted = g.hasEdge(perm(i), perm(j))
-      if (hasOriginal != hasPermuted) return false
+    var i = 0
+    var isAuto = true
+    while (i < n && isAuto) {
+      var j = 0
+      while (j < n && isAuto) {
+        val hasOriginal = g.hasEdge(i, j)
+        val hasPermuted = g.hasEdge(perm(i), perm(j))
+        if (hasOriginal != hasPermuted) isAuto = false
+        j += 1
+      }
+      i += 1
     }
-    true
+    isAuto
   }
 
   // Helper to verify exact group size by enumeration (for small graphs)
@@ -420,9 +427,8 @@ class NautySpec extends AnyFlatSpec with Matchers {
     }
 
     // For K4 with partition [0,1][2,3], we can swap within cells AND swap cells
-    // So group size should be 2 * 2 * 2 = 8 (swap 0-1, swap 2-3, swap cells)
-    // Wait, swapping cells means (0,2)(1,3), so it's (Z2 x Z2) x Z2 = order 8
-    // Actually for K4, swapping cells IS an automorphism, so we should get 8
+    // So group size should be 2 * 2 * 2 = 8: swap within cell 0, swap within cell 1, swap cells
+    // Swapping cells means (0,2)(1,3), giving (Z2 x Z2) x Z2 = order 8
   }
 
   it should "give trivial group for discrete partition" in {

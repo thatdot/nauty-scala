@@ -2,7 +2,7 @@ package com.thatdot.nauty.core
 
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
-import com.thatdot.nauty.graph.{SparseGraph, DenseGraph}
+import com.thatdot.nauty.graph.SparseGraph
 import com.thatdot.nauty.util.NautyOptions
 import scala.util.Random
 

@@ -56,8 +56,7 @@ class Graph6Spec extends AnyFlatSpec with Matchers {
     g0.numEdges shouldBe 0
 
     // K4 (complete graph on 4 vertices)
-    // graph6 for K4 is "C~" (C=3 vertices offset by 63=66='B'+1... actually)
-    // Let me verify by encoding
+    // Verify encoding/decoding round-trips correctly
     val k4 = DenseGraph.complete(4)
     val k4enc = Graph6.encode(k4)
     val k4dec = Graph6.decode(k4enc)

@@ -12,10 +12,18 @@ class SparseNautySpec extends AnyFlatSpec with Matchers {
 
   private def isAutomorphism(g: SparseGraph, perm: Permutation): Boolean = {
     val n = g.n
-    for (i <- 0 until n; j <- g.neighbors(i)) {
-      if (!g.hasEdge(perm(i), perm(j))) return false
+    var i = 0
+    var isAuto = true
+    while (i < n && isAuto) {
+      val neighbors = g.neighbors(i)
+      var idx = 0
+      while (idx < neighbors.length && isAuto) {
+        if (!g.hasEdge(perm(i), perm(neighbors(idx)))) isAuto = false
+        idx += 1
+      }
+      i += 1
     }
-    true
+    isAuto
   }
 
   //

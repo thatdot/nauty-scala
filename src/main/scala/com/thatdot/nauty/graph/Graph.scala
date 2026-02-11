@@ -87,9 +87,11 @@ trait Graph[G <: Graph[G]] { self: G =>
     if (n <= 1) return 0
 
     var maxDist = 0
+    var start = 0
+    var disconnected = false
 
     // BFS from each vertex to find max shortest path
-    for (start <- 0 until n) {
+    while (start < n && !disconnected) {
       val dist = Array.fill(n)(-1)
       val queue = scala.collection.mutable.Queue[Int]()
 
@@ -108,10 +110,11 @@ trait Graph[G <: Graph[G]] { self: G =>
       }
 
       // Check if graph is disconnected
-      if (dist.contains(-1)) return Int.MaxValue
+      if (dist.contains(-1)) disconnected = true
+      start += 1
     }
 
-    maxDist
+    if (disconnected) Int.MaxValue else maxDist
   }
 
   /**
@@ -122,8 +125,10 @@ trait Graph[G <: Graph[G]] { self: G =>
     if (n <= 1) return 0
 
     var minEcc = Int.MaxValue
+    var start = 0
+    var disconnected = false
 
-    for (start <- 0 until n) {
+    while (start < n && !disconnected) {
       val dist = Array.fill(n)(-1)
       val queue = scala.collection.mutable.Queue[Int]()
       var maxDistFromStart = 0
@@ -143,12 +148,15 @@ trait Graph[G <: Graph[G]] { self: G =>
       }
 
       // If disconnected from start, eccentricity is infinite
-      if (dist.contains(-1)) return Int.MaxValue
-
-      minEcc = math.min(minEcc, maxDistFromStart)
+      if (dist.contains(-1)) {
+        disconnected = true
+      } else {
+        minEcc = math.min(minEcc, maxDistFromStart)
+      }
+      start += 1
     }
 
-    minEcc
+    if (disconnected) Int.MaxValue else minEcc
   }
 
   /**

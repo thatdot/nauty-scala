@@ -394,15 +394,35 @@ class SparseNautyStressSpec extends AnyFlatSpec with Matchers {
   "Large complete graphs" should "compute correct group sizes" in {
     // K10: |Aut| = 10! = 3628800
     val k10 = SparseGraph.complete(10)
-    val result = SparseNauty.sparsenauty(k10, NautyOptions.defaultSparseGraph.withSchreier)
-    result.groupSize shouldBe BigDecimal(3628800)
+    val result10 = SparseNauty.sparsenauty(k10, NautyOptions.defaultSparseGraph.withSchreier)
+    result10.groupSize shouldBe BigDecimal(factorial(10))
+
+    // K12: |Aut| = 12! = 479001600
+    val k12 = SparseGraph.complete(12)
+    val result12 = SparseNauty.sparsenauty(k12, NautyOptions.defaultSparseGraph.withSchreier)
+    result12.groupSize shouldBe BigDecimal(factorial(12))
+
+    // K15: |Aut| = 15! = 1307674368000
+    val k15 = SparseGraph.complete(15)
+    val result15 = SparseNauty.sparsenauty(k15, NautyOptions.defaultSparseGraph.withSchreier)
+    result15.groupSize shouldBe BigDecimal(factorial(15))
   }
 
   "Large cycle graphs" should "compute correct group sizes" in {
     // C20: |Aut| = 40
     val c20 = SparseGraph.cycle(20)
-    val result = SparseNauty.sparsenauty(c20, NautyOptions.defaultSparseGraph.withSchreier)
-    result.groupSize shouldBe BigDecimal(40)
+    val result20 = SparseNauty.sparsenauty(c20, NautyOptions.defaultSparseGraph.withSchreier)
+    result20.groupSize shouldBe BigDecimal(40)
+
+    // C50: |Aut| = 100
+    val c50 = SparseGraph.cycle(50)
+    val result50 = SparseNauty.sparsenauty(c50, NautyOptions.defaultSparseGraph.withSchreier)
+    result50.groupSize shouldBe BigDecimal(100)
+
+    // C100: |Aut| = 200
+    val c100 = SparseGraph.cycle(100)
+    val result100 = SparseNauty.sparsenauty(c100, NautyOptions.defaultSparseGraph.withSchreier)
+    result100.groupSize shouldBe BigDecimal(200)
   }
 
   //
@@ -445,6 +465,290 @@ class SparseNautyStressSpec extends AnyFlatSpec with Matchers {
       val expected = if (n == 4) 48 else 4 * n
       withClue(s"Y_$n group size: ") {
         result.groupSize shouldBe BigDecimal(expected)
+      }
+    }
+  }
+
+  //
+  // SPECIAL GRAPHS - Famous graphs with known automorphism groups
+  //
+
+  "Hoffman-Singleton graph" should "have automorphism group of order 252000" in {
+    // Hoffman-Singleton is the unique (50, 7, 0, 1)-strongly regular graph
+    // |Aut| = 252000 = 2^4 * 3^2 * 5^3 * 7
+    // Construction: 50 vertices as pentagons P_i and pentagrams Q_j (i,j in Z_5)
+    // Edges: within P_i and Q_j as 5-cycles, plus P_i vertex h connects to Q_j vertex (i*j + h) mod 5
+
+    val edges = scala.collection.mutable.ArrayBuffer[(Int, Int)]()
+
+    // Pentagon P_i vertices are 5*i + h for h in 0..4
+    // Pentagram Q_j vertices are 25 + 5*j + h for h in 0..4
+
+    // Edges within each pentagon P_i (cycle)
+    for (i <- 0 until 5; h <- 0 until 5) {
+      val v1 = 5 * i + h
+      val v2 = 5 * i + (h + 1) % 5
+      edges += ((v1, v2))
+    }
+
+    // Edges within each pentagram Q_j (pentagram = cycle with step 2)
+    for (j <- 0 until 5; h <- 0 until 5) {
+      val v1 = 25 + 5 * j + h
+      val v2 = 25 + 5 * j + (h + 2) % 5
+      edges += ((v1, v2))
+    }
+
+    // Cross edges: P_i vertex h connects to Q_j vertex (i*j + h) mod 5
+    for (i <- 0 until 5; j <- 0 until 5; h <- 0 until 5) {
+      val pVertex = 5 * i + h
+      val qVertex = 25 + 5 * j + (i * j + h) % 5
+      edges += ((pVertex, qVertex))
+    }
+
+    val g = SparseGraph.fromEdges(50, edges.toSeq)
+
+    // Verify it's a valid 7-regular graph
+    for (v <- 0 until 50) {
+      withClue(s"Vertex $v degree: ") {
+        g.degree(v) shouldBe 7
+      }
+    }
+
+    val result = SparseNauty.sparsenauty(g, NautyOptions.defaultSparseGraph.withSchreier)
+    result.groupSize shouldBe BigDecimal(252000)
+  }
+
+  "Mobius-Kantor graph" should "have automorphism group of order 96" in {
+    // Möbius-Kantor graph is the generalized Petersen graph GP(8,3)
+    // 16 vertices, 24 edges, |Aut| = 96
+
+    val n = 8
+    val k = 3
+    // Outer cycle: 0..7, Inner vertices: 8..15
+    // Outer edges: i -- (i+1) mod 8
+    // Spokes: i -- (i+8)
+    // Inner edges: (i+8) -- ((i+k) mod 8 + 8)
+
+    val outerEdges = (0 until n).map(i => (i, (i + 1) % n))
+    val spokes = (0 until n).map(i => (i, i + n))
+    val innerEdges = (0 until n).map(i => (i + n, (i + k) % n + n))
+
+    val g = SparseGraph.fromEdges(2 * n, outerEdges ++ spokes ++ innerEdges)
+
+    val result = SparseNauty.sparsenauty(g, NautyOptions.defaultSparseGraph.withSchreier)
+    result.groupSize shouldBe BigDecimal(96)
+  }
+
+  "Dodecahedron graph" should "have automorphism group of order 120" in {
+    // Dodecahedron: 20 vertices, 30 edges, |Aut| = 120 (same as A_5)
+    // Standard construction with labeled vertices
+    val edges = Seq(
+      // Top cap: vertex 0 connected to pentagon 1-5
+      (0, 1), (0, 2), (0, 3), (0, 4), (0, 5),
+      // Top pentagon (1-5) - NOT a cycle, but alternating connections
+      (1, 6), (2, 7), (3, 8), (4, 9), (5, 10),
+      // Upper ring connections
+      (6, 7), (7, 8), (8, 9), (9, 10), (10, 6),
+      // Middle connections
+      (6, 11), (7, 12), (8, 13), (9, 14), (10, 15),
+      // Lower ring connections
+      (11, 12), (12, 13), (13, 14), (14, 15), (15, 11),
+      // Bottom pentagon (16-19 and wrapping)
+      (11, 16), (12, 17), (13, 18), (14, 19), (15, 16),
+      // Bottom cap: vertex 19 is center - wait this doesn't work
+      // Let me use a different standard construction
+      (16, 17), (17, 18), (18, 19), (19, 16)
+    )
+
+    // Actually, let me use the standard edge list for dodecahedron
+    // Using vertices 0-19 with specific adjacencies
+    val dodecahedronEdges = Seq(
+      (0,1), (0,4), (0,5),
+      (1,2), (1,6),
+      (2,3), (2,7),
+      (3,4), (3,8),
+      (4,9),
+      (5,10), (5,14),
+      (6,10), (6,11),
+      (7,11), (7,12),
+      (8,12), (8,13),
+      (9,13), (9,14),
+      (10,15),
+      (11,16),
+      (12,17),
+      (13,18),
+      (14,19),
+      (15,16), (15,19),
+      (16,17),
+      (17,18),
+      (18,19)
+    )
+
+    val g = SparseGraph.fromEdges(20, dodecahedronEdges)
+
+    // Verify it's 3-regular
+    for (v <- 0 until 20) {
+      withClue(s"Vertex $v degree: ") {
+        g.degree(v) shouldBe 3
+      }
+    }
+
+    val result = SparseNauty.sparsenauty(g, NautyOptions.defaultSparseGraph.withSchreier)
+    result.groupSize shouldBe BigDecimal(120)
+  }
+
+  "Icosahedron graph" should "have automorphism group of order 120" in {
+    // Icosahedron: 12 vertices, 30 edges, |Aut| = 120 (same as A_5)
+    // 5-regular graph
+    val edges = Seq(
+      // Top vertex 0 connected to upper ring (1-5)
+      (0, 1), (0, 2), (0, 3), (0, 4), (0, 5),
+      // Upper ring (1-5) forms a pentagon
+      (1, 2), (2, 3), (3, 4), (4, 5), (5, 1),
+      // Lower ring (6-10) forms a pentagon
+      (6, 7), (7, 8), (8, 9), (9, 10), (10, 6),
+      // Bottom vertex 11 connected to lower ring
+      (11, 6), (11, 7), (11, 8), (11, 9), (11, 10),
+      // Cross edges between upper and lower rings (zigzag pattern)
+      (1, 6), (1, 10), (2, 6), (2, 7), (3, 7), (3, 8), (4, 8), (4, 9), (5, 9), (5, 10)
+    )
+
+    val g = SparseGraph.fromEdges(12, edges)
+
+    // Verify it's 5-regular
+    for (v <- 0 until 12) {
+      withClue(s"Vertex $v degree: ") {
+        g.degree(v) shouldBe 5
+      }
+    }
+
+    val result = SparseNauty.sparsenauty(g, NautyOptions.defaultSparseGraph.withSchreier)
+    result.groupSize shouldBe BigDecimal(120)
+  }
+
+  "Desargues graph" should "have automorphism group of order 240" in {
+    // Desargues graph = GP(10,3): 20 vertices, 30 edges, |Aut| = 240
+    // It's the Levi graph of the Desargues configuration
+    // See: https://en.wikipedia.org/wiki/Generalized_Petersen_graph
+
+    val n = 10
+    val k = 3
+    val outerEdges = (0 until n).map(i => (i, (i + 1) % n))
+    val spokes = (0 until n).map(i => (i, i + n))
+    val innerEdges = (0 until n).map(i => (n + i, n + (i + k) % n))
+
+    val g = SparseGraph.fromEdges(2 * n, outerEdges ++ spokes ++ innerEdges)
+
+    // Verify it's 3-regular
+    for (v <- 0 until 2 * n) {
+      withClue(s"Vertex $v degree: ") {
+        g.degree(v) shouldBe 3
+      }
+    }
+
+    val result = SparseNauty.sparsenauty(g, NautyOptions.defaultSparseGraph.withSchreier)
+    result.groupSize shouldBe BigDecimal(240)
+  }
+
+  "Nauru graph" should "have automorphism group of order 144" in {
+    // Nauru graph = GP(12,5): 24 vertices, 36 edges, |Aut| = 144
+    // See: https://en.wikipedia.org/wiki/Generalized_Petersen_graph
+
+    val n = 12
+    val k = 5
+    val outerEdges = (0 until n).map(i => (i, (i + 1) % n))
+    val spokes = (0 until n).map(i => (i, i + n))
+    val innerEdges = (0 until n).map(i => (n + i, n + (i + k) % n))
+
+    val g = SparseGraph.fromEdges(2 * n, outerEdges ++ spokes ++ innerEdges)
+
+    // Verify it's 3-regular
+    for (v <- 0 until 2 * n) {
+      withClue(s"Vertex $v degree: ") {
+        g.degree(v) shouldBe 3
+      }
+    }
+
+    val result = SparseNauty.sparsenauty(g, NautyOptions.defaultSparseGraph.withSchreier)
+    result.groupSize shouldBe BigDecimal(144)
+  }
+
+  "Heawood graph" should "have automorphism group of order 336" in {
+    // Heawood graph: 14 vertices, 21 edges, |Aut| = 336 = PGL(2,7)
+    // It's the Levi graph (incidence graph) of the Fano plane
+    // 7 point vertices (0-6) and 7 line vertices (7-13)
+    // Fano plane lines: {0,1,3}, {1,2,4}, {2,3,5}, {3,4,6}, {4,5,0}, {5,6,1}, {6,0,2}
+
+    val heawoodEdges = Seq(
+      (0, 7), (1, 7), (3, 7),     // Line 7 = {0,1,3}
+      (1, 8), (2, 8), (4, 8),     // Line 8 = {1,2,4}
+      (2, 9), (3, 9), (5, 9),     // Line 9 = {2,3,5}
+      (3, 10), (4, 10), (6, 10),  // Line 10 = {3,4,6}
+      (4, 11), (5, 11), (0, 11),  // Line 11 = {4,5,0}
+      (5, 12), (6, 12), (1, 12),  // Line 12 = {5,6,1}
+      (6, 13), (0, 13), (2, 13)   // Line 13 = {6,0,2}
+    )
+
+    val g = SparseGraph.fromEdges(14, heawoodEdges)
+
+    val result = SparseNauty.sparsenauty(g, NautyOptions.defaultSparseGraph.withSchreier)
+    result.groupSize shouldBe BigDecimal(336)
+  }
+
+  //
+  // REGRESSION TESTS - Ensure consistency for graphs that might have caused issues
+  //
+
+  "Large path graphs" should "compute correct group sizes" in {
+    // P50: |Aut| = 2
+    val p50 = SparseGraph.path(50)
+    val result50 = SparseNauty.sparsenauty(p50, NautyOptions.defaultSparseGraph.withSchreier)
+    result50.groupSize shouldBe BigDecimal(2)
+
+    // P100: |Aut| = 2
+    val p100 = SparseGraph.path(100)
+    val result100 = SparseNauty.sparsenauty(p100, NautyOptions.defaultSparseGraph.withSchreier)
+    result100.groupSize shouldBe BigDecimal(2)
+  }
+
+  "Large star graphs" should "compute correct group sizes" in {
+    // S15: |Aut| = 14!
+    val s15edges = (1 until 15).map(i => (0, i))
+    val s15 = SparseGraph.fromEdges(15, s15edges)
+    val result15 = SparseNauty.sparsenauty(s15, NautyOptions.defaultSparseGraph.withSchreier)
+    result15.groupSize shouldBe BigDecimal(factorial(14))
+
+    // S20: |Aut| = 19!
+    val s20edges = (1 until 20).map(i => (0, i))
+    val s20 = SparseGraph.fromEdges(20, s20edges)
+    val result20 = SparseNauty.sparsenauty(s20, NautyOptions.defaultSparseGraph.withSchreier)
+    result20.groupSize shouldBe BigDecimal(factorial(19))
+  }
+
+  "Large random graphs" should "have consistent canonical forms" in {
+    val rng = new Random(12345)
+
+    for (n <- Seq(30, 50, 70)) {
+      val edgeProb = 0.2
+      val edges = for {
+        i <- 0 until n
+        j <- i + 1 until n
+        if rng.nextDouble() < edgeProb
+      } yield (i, j)
+
+      val base = SparseGraph.fromEdges(n, edges)
+      val opts = NautyOptions.defaultSparseGraph.withCanon
+
+      val baseResult = SparseNauty.sparsenauty(base, opts)
+      val baseCanon = baseResult.canonicalGraph.get
+
+      // Verify a random permutation gives the same canonical form
+      val (permuted, _) = permuteGraph(base, rng.nextLong())
+      val permResult = SparseNauty.sparsenauty(permuted, opts)
+      val permCanon = permResult.canonicalGraph.get
+
+      withClue(s"Random graph n=$n: ") {
+        baseCanon shouldBe permCanon
       }
     }
   }

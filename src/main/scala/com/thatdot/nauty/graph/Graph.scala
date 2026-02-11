@@ -38,6 +38,146 @@ trait Graph[G <: Graph[G]] { self: G =>
 
   /** Create a copy */
   def copy: G
+
+  /**
+   * Compute the girth (length of shortest cycle) of this graph.
+   * Returns Int.MaxValue if the graph is acyclic (a forest).
+   * For directed graphs, finds the shortest directed cycle.
+   */
+  def girth: Int = {
+    if (n == 0) return Int.MaxValue
+
+    var minCycle = Int.MaxValue
+
+    // For each vertex, do BFS to find shortest cycle through it
+    for (start <- 0 until n) {
+      val dist = Array.fill(n)(-1)
+      val parent = Array.fill(n)(-1)
+      val queue = scala.collection.mutable.Queue[Int]()
+
+      dist(start) = 0
+      queue.enqueue(start)
+
+      while (queue.nonEmpty && dist(queue.head) < minCycle / 2) {
+        val v = queue.dequeue()
+        for (w <- neighbors(v)) {
+          if (dist(w) == -1) {
+            dist(w) = dist(v) + 1
+            parent(w) = v
+            queue.enqueue(w)
+          } else if (parent(v) != w || isDigraph) {
+            // Found a cycle: w was already visited and is not v's parent
+            // (for undirected graphs, back-edge to parent doesn't count)
+            val cycleLen = dist(v) + dist(w) + 1
+            minCycle = math.min(minCycle, cycleLen)
+          }
+        }
+      }
+    }
+
+    minCycle
+  }
+
+  /**
+   * Compute the diameter (maximum shortest path length) of this graph.
+   * Returns Int.MaxValue if the graph is disconnected.
+   * Returns 0 for a single vertex graph.
+   */
+  def diameter: Int = {
+    if (n <= 1) return 0
+
+    var maxDist = 0
+
+    // BFS from each vertex to find max shortest path
+    for (start <- 0 until n) {
+      val dist = Array.fill(n)(-1)
+      val queue = scala.collection.mutable.Queue[Int]()
+
+      dist(start) = 0
+      queue.enqueue(start)
+
+      while (queue.nonEmpty) {
+        val v = queue.dequeue()
+        for (w <- neighbors(v)) {
+          if (dist(w) == -1) {
+            dist(w) = dist(v) + 1
+            maxDist = math.max(maxDist, dist(w))
+            queue.enqueue(w)
+          }
+        }
+      }
+
+      // Check if graph is disconnected
+      if (dist.contains(-1)) return Int.MaxValue
+    }
+
+    maxDist
+  }
+
+  /**
+   * Compute the radius (minimum eccentricity) of this graph.
+   * Returns Int.MaxValue if the graph is disconnected.
+   */
+  def radius: Int = {
+    if (n <= 1) return 0
+
+    var minEcc = Int.MaxValue
+
+    for (start <- 0 until n) {
+      val dist = Array.fill(n)(-1)
+      val queue = scala.collection.mutable.Queue[Int]()
+      var maxDistFromStart = 0
+
+      dist(start) = 0
+      queue.enqueue(start)
+
+      while (queue.nonEmpty) {
+        val v = queue.dequeue()
+        for (w <- neighbors(v)) {
+          if (dist(w) == -1) {
+            dist(w) = dist(v) + 1
+            maxDistFromStart = math.max(maxDistFromStart, dist(w))
+            queue.enqueue(w)
+          }
+        }
+      }
+
+      // If disconnected from start, eccentricity is infinite
+      if (dist.contains(-1)) return Int.MaxValue
+
+      minEcc = math.min(minEcc, maxDistFromStart)
+    }
+
+    minEcc
+  }
+
+  /**
+   * Check if this graph is connected.
+   * For directed graphs, checks weak connectivity (ignoring edge directions).
+   */
+  def isConnected: Boolean = {
+    if (n <= 1) return true
+
+    val visited = Array.fill(n)(false)
+    val queue = scala.collection.mutable.Queue[Int]()
+
+    visited(0) = true
+    queue.enqueue(0)
+
+    var count = 1
+    while (queue.nonEmpty) {
+      val v = queue.dequeue()
+      for (w <- neighbors(v)) {
+        if (!visited(w)) {
+          visited(w) = true
+          count += 1
+          queue.enqueue(w)
+        }
+      }
+    }
+
+    count == n
+  }
 }
 
 /**

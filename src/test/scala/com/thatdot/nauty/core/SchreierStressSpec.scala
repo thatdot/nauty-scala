@@ -33,10 +33,6 @@ class SchreierStressSpec extends AnyFlatSpec with Matchers {
     }
 
     val successRate = correct * 100.0 / iterations
-    println(f"S7 success rate: $successRate%.1f%% ($correct/$iterations)")
-    if (wrongValues.nonEmpty) {
-      println(s"Wrong values: ${wrongValues.toSeq.sortBy(-_._2).map(kv => s"${kv._1}(${kv._2}x)").mkString(", ")}")
-    }
 
     // With C-style implementation we expect near 100% success
     successRate should be >= 95.0

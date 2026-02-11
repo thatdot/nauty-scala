@@ -3,11 +3,10 @@ package com.thatdot.nauty.core
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
 import com.thatdot.nauty.graph.SparseGraph
-import com.thatdot.nauty.util.{NautyOptions, AutomorphismCallback}
-import com.thatdot.nauty.group.Orbits
+import com.thatdot.nauty.util.NautyOptions
 
 /**
- * Debug test to understand the non-determinism in sparse nauty.
+ * Tests for sparse nauty consistency.
  */
 class DebugSparseNautySpec extends AnyFlatSpec with Matchers {
 
@@ -16,30 +15,11 @@ class DebugSparseNautySpec extends AnyFlatSpec with Matchers {
     val edges = (1 until 8).map(i => (0, i))
     val g = SparseGraph.fromEdges(8, edges)
 
-    println(s"Graph: n=${g.n}, edges=${edges.mkString(", ")}")
-
-    // Run multiple times and track details
-    for (run <- 1 to 5) {
-      println(s"\n=== Run $run ===")
-
-      // Use a custom callback to track automorphisms
-      var autoCount = 0
-
-      val callback: AutomorphismCallback = new AutomorphismCallback {
-        def apply(count: Int, perm: Array[Int], orbits: Array[Int],
-                  numOrbits: Int, numFixed: Int, n: Int): Unit = {
-          autoCount += 1
-          val permStr = perm.mkString(",")
-          val orbitsStr = orbits.mkString(",")
-          println(s"  Auto $autoCount: perm=[$permStr], orbits=[$orbitsStr], numOrbits=$numOrbits, numFixed=$numFixed")
-        }
-      }
-
-      val opts = NautyOptions.defaultSparseGraph.withSchreier.copy(userAutomProc = Some(callback))
+    // Run multiple times and verify consistency
+    for (_ <- 1 to 5) {
+      val opts = NautyOptions.defaultSparseGraph.withSchreier
       val result = SparseNauty.sparsenauty(g, opts)
-
-      println(s"  Final: groupSize=${result.groupSize}, numGenerators=${result.generators.size}, numOrbits=${result.numOrbits}")
-      println(s"  Generators: ${result.generators.map(_.toCycleString).mkString("; ")}")
+      result.groupSize shouldBe BigDecimal(5040)
     }
   }
 
@@ -48,18 +28,12 @@ class DebugSparseNautySpec extends AnyFlatSpec with Matchers {
     val sparse = SparseGraph.fromEdges(8, edges)
     val dense = sparse.toDense
 
-    for (run <- 1 to 3) {
+    for (_ <- 1 to 3) {
       val sparseResult = SparseNauty.sparsenauty(sparse, NautyOptions.defaultSparseGraph.withSchreier)
       val denseResult = Nauty.densenauty(dense, NautyOptions.defaultGraph.withSchreier)
 
-      val sparseOK = if (sparseResult.groupSize == BigDecimal(5040)) "OK" else "WRONG"
-      val denseOK = if (denseResult.groupSize == BigDecimal(5040)) "OK" else "WRONG"
-
-      println(s"Run $run: sparse=${sparseResult.groupSize} $sparseOK, dense=${denseResult.groupSize} $denseOK")
-
-      // Print generators
-      println(s"  Sparse generators (${sparseResult.generators.size}): ${sparseResult.generators.map(_.toCycleString).mkString("; ")}")
-      println(s"  Dense generators (${denseResult.generators.size}): ${denseResult.generators.map(_.toCycleString).mkString("; ")}")
+      sparseResult.groupSize shouldBe BigDecimal(5040)
+      denseResult.groupSize shouldBe BigDecimal(5040)
     }
   }
 
@@ -67,11 +41,9 @@ class DebugSparseNautySpec extends AnyFlatSpec with Matchers {
     val edges = (1 until 8).map(i => (0, i))
     val g = SparseGraph.fromEdges(8, edges)
 
-    for (run <- 1 to 5) {
-      // Without Schreier - uses stats-based group size
+    for (_ <- 1 to 5) {
       val result = SparseNauty.sparsenauty(g, NautyOptions.defaultSparseGraph)
-      val status = if (result.groupSize == BigDecimal(5040)) "OK" else "WRONG"
-      println(s"Run $run (no Schreier): groupSize=${result.groupSize} $status")
+      result.groupSize shouldBe BigDecimal(5040)
     }
   }
 }

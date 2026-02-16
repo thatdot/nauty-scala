@@ -3,33 +3,34 @@ package com.thatdot.nauty.util
 /**
  * Statistics from a nauty computation.
  * Matches the C statsblk structure.
+ *
+ * @param grpsize1 Group size mantissa: size = grpsize1 * 10^grpsize2
+ * @param grpsize2 Group size exponent
+ * @param numOrbits Number of orbits
+ * @param numGenerators Number of generators found
+ * @param errStatus Error status (0 = success)
+ * @param numNodes Total number of search tree nodes
+ * @param numBadLeaves Number of leaves that didn't contribute
+ * @param maxLevel Maximum depth of search
+ * @param tcTotal Total size of all target cells
+ * @param canUpdates Number of canonical labeling updates
+ * @param invApplics Number of invariant applications
+ * @param invSuccesses Number of successful invariant uses
+ * @param invarSucLevel Least level where invariant worked
  */
 case class NautyStats(
-  /** Group size mantissa: size = grpsize1 * 10^grpsize2 */
   grpsize1: Double,
-  /** Group size exponent */
   grpsize2: Int,
-  /** Number of orbits */
   numOrbits: Int,
-  /** Number of generators found */
   numGenerators: Int,
-  /** Error status (0 = success) */
   errStatus: Int,
-  /** Total number of search tree nodes */
   numNodes: Long,
-  /** Number of leaves that didn't contribute */
   numBadLeaves: Long,
-  /** Maximum depth of search */
   maxLevel: Int,
-  /** Total size of all target cells */
   tcTotal: Long,
-  /** Number of canonical labeling updates */
   canUpdates: Long,
-  /** Number of invariant applications */
   invApplics: Long,
-  /** Number of successful invariant uses */
   invSuccesses: Long,
-  /** Least level where invariant worked */
   invarSucLevel: Int
 ) {
   /**

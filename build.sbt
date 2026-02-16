@@ -23,6 +23,9 @@ ThisBuild / developers := List(
 // Maven Central Portal (new Sonatype)
 ThisBuild / sonatypeCredentialHost := "central.sonatype.com"
 
+// Version scheme for eviction warnings
+ThisBuild / versionScheme := Some("early-semver")
+
 lazy val root = (project in file("."))
   .settings(
     name := "nauty-scala",

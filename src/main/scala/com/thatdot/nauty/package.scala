@@ -17,8 +17,8 @@ package com.thatdot
  *
  * // Compute automorphism group
  * val result = Nauty.densenauty(g)
- * println(s"Group size: ${result.groupSize}")
- * println(s"Number of orbits: ${result.numOrbits}")
+ * println(s"Group size: \${result.groupSize}")
+ * println(s"Number of orbits: \${result.numOrbits}")
  *
  * // Test isomorphism
  * val g2 = DenseGraph.fromEdges(4, Seq((0, 2), (2, 1), (1, 3), (3, 0)))

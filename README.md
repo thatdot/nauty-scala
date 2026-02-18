@@ -14,6 +14,10 @@ The nauty algorithm was developed by **Brendan McKay** and **Adolfo Piperno**. T
 
 The original version of nauty is released under the APACHE 2.0 License. So is this version.
 
+## A.I. Disclaimer
+
+This library was created using A.I. tools. In particular, Claude Code (4.5/4.6) was provided with the original C implemention (linked above) and instructed to create a faithful translation into Scala. It has been deliberately tested with human-guided and A.I.-generated tests you can find in the test suite.
+
 ## Overview
 
 This library provides:
@@ -350,7 +354,7 @@ This is a **partial port** of nauty. The following features are implemented:
 
 2. **Schreier-Sims pruneset**: The `pruneset()` optimization from C nauty (which prunes the search space using group information during the search) is not implemented. This does not affect correctness—all automorphisms are still found—but may result in exploring more search tree nodes than necessary for some graphs.
 
-3. **Performance**: Expect 2-5x slower than C nauty due to JVM overhead. Sufficient for most applications but not for processing millions of graphs.
+3. **Performance**: Expect 2-5x slower than C nauty due to JVM overhead. Sufficient for most applications but not for processing very large graphs.
 
 ## Comparison with C nauty
 

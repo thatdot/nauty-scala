@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -25,5 +25,3 @@ jobs:
       - uses: sbt/setup-sbt@v1
       - name: Run tests
         run: sbt test
-      - name: Upload dependency graph
-        uses: scalacenter/sbt-dependency-submission@ab086b50c947c9774b70f39fc7f6e20ca2706c91

@@ -299,6 +299,31 @@ class NautySpec extends AnyFlatSpec with Matchers {
   }
 
   //
+  // RawCanonicalHash tests
+  //
+
+  "RawCanonicalHash" should "use value equality, not reference equality" in {
+    val h1 = RawCanonicalHash(123L, 456L, 789L)
+    val h2 = RawCanonicalHash(123L, 456L, 789L)
+
+    // Different object instances
+    (h1 eq h2) shouldBe false
+
+    // But equal by value
+    h1 shouldBe h2
+    h1.hashCode shouldBe h2.hashCode
+  }
+
+  it should "not be equal when values differ" in {
+    val h1 = RawCanonicalHash(123L, 456L, 789L)
+    val h2 = RawCanonicalHash(123L, 456L, 790L)
+    val h3 = RawCanonicalHash(0L, 0L, 0L)
+
+    h1 should not be h2
+    h1 should not be h3
+  }
+
+  //
   // Canonical form tests
   //
 
@@ -306,13 +331,10 @@ class NautySpec extends AnyFlatSpec with Matchers {
     val g1 = DenseGraph.fromEdges(4, Seq((0, 1), (1, 2), (2, 3)))
     val g2 = DenseGraph.fromEdges(4, Seq((3, 2), (2, 1), (1, 0)))
 
-    val opts = NautyOptions.defaultGraph.withCanon
-    val r1 = Nauty.densenauty(g1, opts)
-    val r2 = Nauty.densenauty(g2, opts)
+    val c1 = Nauty.densenautyCanonical(g1)
+    val c2 = Nauty.densenautyCanonical(g2)
 
-    r1.canonicalGraph shouldBe defined
-    r2.canonicalGraph shouldBe defined
-    r1.canonicalGraph.get shouldBe r2.canonicalGraph.get
+    c1.canonicalGraph shouldBe c2.canonicalGraph
   }
 
   it should "produce consistent canonical forms for all labelings of C4" in {

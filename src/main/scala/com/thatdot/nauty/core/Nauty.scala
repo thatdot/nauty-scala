@@ -7,10 +7,52 @@ import com.thatdot.nauty.util.{NautyOptions, NautyStats, StatsBuilder}
 
 import scala.collection.mutable.ArrayBuffer
 
-/**
- * Result of a nauty computation.
+/** Raw canonical hash as three Long values computed from adjacency matrix.
  *
- * @param canonicalGraph     The canonically labeled graph (if requested)
+ * This provides a compact structural fingerprint for graph isomorphism testing.
+ * Two graphs with the same RawCanonicalHash have identical topology under canonical labeling.
+ * Note that this does not uniquely describe a whole graph pattern in cases, however. For that
+ * it would also need the node pattern component and the cross-node constraints. These three
+ * components (hash, node pattern, cross-node constraints) together make up a full graph hash.
+ */
+case class RawCanonicalHash(h1: Long, h2: Long, h3: Long) {
+  override def toString: String = f"[${h1.toHexString}%s ${h2.toHexString}%s ${h3.toHexString}%s]"
+}
+
+/** Base trait for nauty computation results with common automorphism data. */
+sealed trait NautyResult {
+  def generators: List[Permutation]
+  def groupSize: BigDecimal
+  def numOrbits: Int
+  def orbits: Array[Int]
+  def stats: NautyStats
+  def canonicalLabeling: Array[Int]
+}
+
+/** Result when canonical labeling was requested (getCanon = 1).
+ *
+ * @param canonicalGraph     The canonically labeled graph
+ * @param canonicalLabeling  The permutation mapping input to canonical form
+ * @param canonicalHash      Raw hash values computed from canonical adjacency matrix
+ * @param generators         Generators of the automorphism group
+ * @param groupSize          Size of the automorphism group
+ * @param numOrbits          Number of orbits
+ * @param orbits             Orbit partition (orbits(i) = representative of i's orbit)
+ * @param stats              Computation statistics
+ */
+case class CanonicalNautyResult(
+  canonicalGraph: DenseGraph,
+  canonicalLabeling: Array[Int],
+  canonicalHash: RawCanonicalHash,
+  generators: List[Permutation],
+  groupSize: BigDecimal,
+  numOrbits: Int,
+  orbits: Array[Int],
+  stats: NautyStats
+) extends NautyResult
+
+/** Result when only automorphisms were requested (getCanon = 0).
+ *
  * @param canonicalLabeling  The permutation mapping input to canonical form
  * @param generators         Generators of the automorphism group
  * @param groupSize          Size of the automorphism group
@@ -18,48 +60,14 @@ import scala.collection.mutable.ArrayBuffer
  * @param orbits             Orbit partition (orbits(i) = representative of i's orbit)
  * @param stats              Computation statistics
  */
-case class NautyResult(
-  canonicalGraph: Option[DenseGraph],
+case class AutomorphismOnlyResult(
   canonicalLabeling: Array[Int],
   generators: List[Permutation],
   groupSize: BigDecimal,
   numOrbits: Int,
   orbits: Array[Int],
   stats: NautyStats
-) {
-  /**
-   * Compute a canonical hash of the graph.
-   * This produces a hex string that is the same for isomorphic graphs.
-   */
-  def canonicalHash: String = {
-    canonicalGraph match {
-      case Some(g) =>
-        // Use same algorithm as nauty's hash: based on adjacency matrix data
-        val data = g.data
-        var h1 = 0L
-        var h2 = 0L
-        var h3 = 0L
-
-        var i = 0
-        while (i < data.length) {
-          val w = data(i)
-          h1 = h1 ^ (w * (i + 1))
-          h2 = h2 ^ java.lang.Long.rotateLeft(w, (i * 17) % 64)
-          h3 = h3 + (w ^ (h1 >> 32))
-          i += 1
-        }
-
-        // Include n for disambiguating different sizes
-        h1 = h1 ^ (g.n.toLong << 32)
-        h3 = h3 ^ g.numEdges
-
-        f"[${h1.toHexString}%s ${h2.toHexString}%s ${h3.toHexString}%s]"
-
-      case None =>
-        "[no-canon]"
-    }
-  }
-}
+) extends NautyResult
 
 /**
  * Main nauty algorithm implementation.
@@ -72,17 +80,57 @@ object Nauty {
    * Compute automorphism group and canonical labeling of a dense graph.
    *
    * @param g       The input graph
-   * @param options Computation options
-   * @return NautyResult with generators, canonical form, etc.
+   * @param options Computation options (getCanon is ignored; use densenautyCanonical or densenautyAutomorphisms for explicit control)
+   * @return AutomorphismOnlyResult with generators, orbits, etc.
    */
-  def densenauty(g: DenseGraph, options: NautyOptions = NautyOptions.defaultGraph): NautyResult = {
+  def densenauty(g: DenseGraph, options: NautyOptions = NautyOptions.defaultGraph): AutomorphismOnlyResult = {
+    densenautyAutomorphisms(g, options)
+  }
+
+  /**
+   * Compute automorphism group and canonical form of a dense graph.
+   *
+   * @param g       The input graph
+   * @param options Computation options (getCanon is automatically set to 1)
+   * @return CanonicalNautyResult with canonical graph, hash, generators, etc.
+   */
+  def densenautyCanonical(g: DenseGraph, options: NautyOptions = NautyOptions.defaultGraph): CanonicalNautyResult = {
     val n = g.n
     val m = g.m
 
     // Handle empty graph
     if (n == 0) {
-      return NautyResult(
-        canonicalGraph = if (options.getCanon != 0) Some(DenseGraph.empty(0)) else None,
+      return CanonicalNautyResult(
+        canonicalGraph = DenseGraph.empty(0),
+        canonicalLabeling = Array.empty[Int],
+        canonicalHash = RawCanonicalHash(0L, 0L, 0L),
+        generators = Nil,
+        groupSize = BigDecimal(1),
+        numOrbits = 0,
+        orbits = Array.empty[Int],
+        stats = NautyStats.empty
+      )
+    }
+
+    val opts = if (options.getCanon != 0) options else options.withCanon
+    val context = new NautyContext(g, opts, n, m)
+    context.runCanonical()
+  }
+
+  /**
+   * Compute automorphism group only (no canonical form) for a dense graph.
+   *
+   * @param g       The input graph
+   * @param options Computation options (getCanon is automatically set to 0)
+   * @return AutomorphismOnlyResult with generators, orbits, etc.
+   */
+  def densenautyAutomorphisms(g: DenseGraph, options: NautyOptions = NautyOptions.defaultGraph): AutomorphismOnlyResult = {
+    val n = g.n
+    val m = g.m
+
+    // Handle empty graph
+    if (n == 0) {
+      return AutomorphismOnlyResult(
         canonicalLabeling = Array.empty[Int],
         generators = Nil,
         groupSize = BigDecimal(1),
@@ -92,8 +140,9 @@ object Nauty {
       )
     }
 
-    val context = new NautyContext(g, options, n, m)
-    context.run()
+    val opts = if (options.getCanon == 0) options else options.withoutCanon
+    val context = new NautyContext(g, opts, n, m)
+    context.runAutomorphisms()
   }
 
   /**
@@ -114,22 +163,16 @@ object Nauty {
   def isIsomorphic(g1: DenseGraph, g2: DenseGraph): Boolean = {
     if (g1.n != g2.n || g1.numEdges != g2.numEdges) return false
 
-    val opts = NautyOptions.defaultGraph.withCanon
-    val r1 = densenauty(g1, opts)
-    val r2 = densenauty(g2, opts)
-
-    (r1.canonicalGraph, r2.canonicalGraph) match {
-      case (Some(c1), Some(c2)) => c1 == c2
-      case _ => false
-    }
+    val c1 = densenautyCanonical(g1)
+    val c2 = densenautyCanonical(g2)
+    c1.canonicalGraph == c2.canonicalGraph
   }
 
   /**
    * Compute the canonical form of a graph.
    */
   def canonicalForm(g: DenseGraph): DenseGraph = {
-    val result = densenauty(g, NautyOptions.defaultGraph.withCanon)
-    result.canonicalGraph.get
+    densenautyCanonical(g).canonicalGraph
   }
 
   /**
@@ -138,17 +181,15 @@ object Nauty {
    * @param g          The graph
    * @param partition  Vertex partition - vertices in same cell are considered equivalent
    * @param directed   Whether graph is directed
-   * @return Canonical hash string
+   * @return Canonical hash
    */
-  def canonicalHash(g: DenseGraph, partition: Seq[Seq[Int]], directed: Boolean = false): String = {
+  def canonicalHash(g: DenseGraph, partition: Seq[Seq[Int]], directed: Boolean = false): RawCanonicalHash = {
     val opts = NautyOptions(
-      getCanon = 1,
       digraph = directed,
       defaultPtn = false,
       initialPartition = Some(partition)
     )
-    val result = densenauty(g, opts)
-    result.canonicalHash
+    densenautyCanonical(g, opts).canonicalHash
   }
 
   /**
@@ -161,13 +202,11 @@ object Nauty {
    */
   def automorphismGenerators(g: DenseGraph, partition: Seq[Seq[Int]], directed: Boolean = false): List[Permutation] = {
     val opts = NautyOptions(
-      getCanon = 0,
       digraph = directed,
       defaultPtn = false,
       initialPartition = Some(partition)
     )
-    val result = densenauty(g, opts)
-    result.generators
+    densenautyAutomorphisms(g, opts).generators
   }
 
   /**
@@ -363,9 +402,9 @@ private class NautyContext(
   }
 
   /**
-   * Run the nauty algorithm.
+   * Run the core nauty search algorithm.
    */
-  def run(): NautyResult = {
+  private def runCore(): Unit = {
     val numCells = initPartition()
     initOrbits()
     SetOps.emptySet(fixedpts, m)
@@ -377,23 +416,73 @@ private class NautyContext(
     // Run the search
     firstPathNode(1, numCellsRef.value)
 
-    // Build result
+    // Update stats
     stats.numOrbits = Orbits.numOrbits(orbits, n)
+  }
 
-    val generatorsList = generators.map(p => Permutation.unsafeFromArray(p.toArray)).toList
-
-    // Compute group size: use Schreier-Sims if enabled, otherwise use orbit-index approximation
-    val groupSize: BigDecimal = if (options.schreier && generatorsList.nonEmpty) {
-      // Use Schreier-Sims for accurate group order
+  /**
+   * Compute group size using Schreier-Sims if enabled, otherwise orbit-index approximation.
+   */
+  private def computeGroupSize(generatorsList: List[Permutation]): BigDecimal = {
+    if (options.schreier && generatorsList.nonEmpty) {
       BigDecimal(SchreierSims.groupOrder(generatorsList, n))
     } else {
-      // Use the orbit-index approximation computed during search
       stats.build().groupSize
     }
+  }
 
-    NautyResult(
-      canonicalGraph = if (options.getCanon != 0) canong else None,
-      canonicalLabeling = if (options.getCanon != 0) canonLab.clone() else lab.clone(),
+  /**
+   * Run the nauty algorithm and return canonical form result.
+   */
+  def runCanonical(): CanonicalNautyResult = {
+    runCore()
+
+    val generatorsList = generators.map(p => Permutation.unsafeFromArray(p.toArray)).toList
+    val groupSize = computeGroupSize(generatorsList)
+
+    val cg = canong.get
+    // Compute canonical hash from adjacency matrix data
+    val data = cg.data
+    var h1 = 0L
+    var h2 = 0L
+    var h3 = 0L
+
+    var i = 0
+    while (i < data.length) {
+      val w = data(i)
+      h1 = h1 ^ (w * (i + 1))
+      h2 = h2 ^ java.lang.Long.rotateLeft(w, (i * 17) % 64)
+      h3 = h3 + (w ^ (h1 >> 32))
+      i += 1
+    }
+
+    // Include n for disambiguating different sizes
+    h1 = h1 ^ (cg.n.toLong << 32)
+    h3 = h3 ^ cg.numEdges
+
+    CanonicalNautyResult(
+      canonicalGraph = cg,
+      canonicalLabeling = canonLab.clone(),
+      canonicalHash = RawCanonicalHash(h1, h2, h3),
+      generators = generatorsList,
+      groupSize = groupSize,
+      numOrbits = stats.numOrbits,
+      orbits = orbits.clone(),
+      stats = stats.build()
+    )
+  }
+
+  /**
+   * Run the nauty algorithm and return automorphism-only result.
+   */
+  def runAutomorphisms(): AutomorphismOnlyResult = {
+    runCore()
+
+    val generatorsList = generators.map(p => Permutation.unsafeFromArray(p.toArray)).toList
+    val groupSize = computeGroupSize(generatorsList)
+
+    AutomorphismOnlyResult(
+      canonicalLabeling = lab.clone(),
       generators = generatorsList,
       groupSize = groupSize,
       numOrbits = stats.numOrbits,

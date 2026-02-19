@@ -30,7 +30,7 @@ This library provides:
 Add to your `build.sbt`:
 
 ```scala
-libraryDependencies += "com.thatdot" %% "nauty-scala" % "0.9.0"
+libraryDependencies += "com.thatdot" %% "nauty-scala" % "0.9.1"
 ```
 
 Or build from source:
@@ -144,9 +144,8 @@ val c2 = Nauty.canonicalForm(g2)
 c1 == c2  // true - same canonical form
 
 // Canonical hash for indexing/deduplication
-val opts = NautyOptions.defaultGraph.withCanon
-val r1 = Nauty.densenauty(g1, opts)
-val r2 = Nauty.densenauty(g2, opts)
+val r1 = Nauty.densenautyCanonical(g1)
+val r2 = Nauty.densenautyCanonical(g2)
 
 r1.canonicalHash == r2.canonicalHash  // true
 ```
